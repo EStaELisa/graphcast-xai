@@ -1,0 +1,3 @@
+name: pulumi-graphcast
+runtime: go
+description: Deploy a Graphcast TPU node on GCP
