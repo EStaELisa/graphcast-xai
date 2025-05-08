@@ -4,6 +4,7 @@
 
 data/
 .venv/
+.env
 
 # make output
 bin/

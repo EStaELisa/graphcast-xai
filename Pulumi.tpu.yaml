@@ -1,5 +1,4 @@
 config:
-  google-native:project: graphcast-esta
   pulumi-graphcast:tpu-chip-core-number: "1"
   pulumi-graphcast:location: us-central1-a
-  pulumi-graphcast:enableTPU: "true"
+  pulumi-graphcast:enable_tpu: "true"
