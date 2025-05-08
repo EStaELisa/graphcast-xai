@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha1"
+	"fmt"
 	"log"
 	"os"
+	"sort"
 
 	"github.com/joho/godotenv"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
@@ -61,20 +64,96 @@ func main() {
 				return err
 			}
 
+			userName := os.Getenv(sshUserName)
+
 			conn := &remote.ConnectionArgs{
 				Host:       nodeIP,
-				User:       pulumi.String(os.Getenv(sshUserName)),
+				User:       pulumi.String(userName),
 				PrivateKey: pulumi.String(string(keyBytes)),
 			}
 
-			_, err = remote.NewCommand(ctx, "hostnameCmd", &remote.CommandArgs{
-				Create:     pulumi.String("ls"),
+			// upload all scripts to the server
+			scriptsUpload, err := remote.NewCopyToRemote(ctx, "upload-scripts", &remote.CopyToRemoteArgs{
 				Connection: conn,
+				RemotePath: pulumi.Sprintf("/home/%s/scripts/", userName),
+				Source:     pulumi.NewFileArchive("scripts/"),
 			}, pulumi.Parent(node))
 			if err != nil {
 				return err
 			}
 
+			// get all file names from the scripts directory
+			files, err := os.ReadDir("./scripts")
+			if err != nil {
+				return err
+			}
+
+			// order the files by name
+			sort.Slice(files, func(i, j int) bool {
+				return files[i].Name() < files[j].Name()
+			})
+
+			// execute all files on the server in order
+			scriptDependsOn := []pulumi.Resource{scriptsUpload}
+			for _, file := range files {
+				filePath := fmt.Sprintf("./scripts/%s", file.Name())
+				fileContent, err := os.ReadFile(filePath)
+				if err != nil {
+					return err
+				}
+				fileHash := fmt.Sprintf("%x", sha1.Sum(fileContent))
+
+				scriptCMD, err := remote.NewCommand(ctx, file.Name(), &remote.CommandArgs{
+					Create:     pulumi.String(fmt.Sprintf("chmod +x /home/%s/scripts/%s && /home/%s/scripts/%s", userName, file.Name(), userName, file.Name())),
+					Connection: conn,
+					Triggers: pulumi.Array{
+						pulumi.String(fileHash),
+					},
+				},
+					pulumi.Parent(scriptsUpload),
+					pulumi.DependsOn(scriptDependsOn),
+				)
+				if err != nil {
+					return err
+				}
+				scriptDependsOn = append(scriptDependsOn, scriptCMD)
+			}
+
+			// upload requirements.txt to the server
+			requirementsUpload, err := remote.NewCopyToRemote(ctx, "upload-requirements", &remote.CopyToRemoteArgs{
+				Connection: conn,
+				RemotePath: pulumi.Sprintf("/home/%s/requirements/", userName),
+				Source:     pulumi.NewFileArchive("requirements/"),
+			}, pulumi.Parent(node))
+			if err != nil {
+				return err
+			}
+
+			_, err = remote.NewCommand(ctx, "pip install", &remote.CommandArgs{
+				Create: pulumi.String(`
+source .venv/bin/activate
+pip install -r requirements/server.txt`),
+				Connection: conn,
+				Triggers: pulumi.Array{
+					requirementsUpload,
+				},
+			},
+				pulumi.Parent(requirementsUpload),
+				pulumi.DependsOn(scriptDependsOn),
+				pulumi.DependsOn([]pulumi.Resource{requirementsUpload}),
+			)
+			if err != nil {
+				return err
+			}
+
+			_, err = remote.NewCopyToRemote(ctx, "upload-dot-env", &remote.CopyToRemoteArgs{
+				Connection: conn,
+				RemotePath: pulumi.Sprintf("/home/%s/.env", userName),
+				Source:     pulumi.NewFileAsset(".env"),
+			}, pulumi.Parent(node))
+			if err != nil {
+				return err
+			}
 		}
 
 		if conf.GetBool("enable_bucket") {
