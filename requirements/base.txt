@@ -10,6 +10,8 @@ shapely==2.1.0 --no-binary shapely
 # for downloading wheather data
 cdsapi==0.7.5
 netCDF4==1.7.2
+geopandas==1.0.1
+geodatasets==2024.8.0 
 
 # Graphcast dependencies
 git+https://github.com/deepmind/graphcast.git@v0.1.1
