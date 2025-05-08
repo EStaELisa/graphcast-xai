@@ -37,4 +37,4 @@ pip install --no-binary shapely shapely==2.1.0
 
 
 # start jupityer lab kernel
-python3 -m notebook --NotebookApp.allow_origin='https://colab.research.google.com' --port=8081 --NotebookApp.port_retries=0 --no-browser
+.venv/bin/python3 -m notebook --NotebookApp.allow_origin='https://colab.research.google.com' --port=8081 --NotebookApp.port_retries=0 --no-browser

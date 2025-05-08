@@ -146,6 +146,15 @@ pip install -r requirements/server.txt`),
 				return err
 			}
 
+			_, err = remote.NewCopyToRemote(ctx, "upload-python-pkg", &remote.CopyToRemoteArgs{
+				Connection: conn,
+				RemotePath: pulumi.Sprintf("/home/%s/pkg/", userName),
+				Source:     pulumi.NewFileArchive("pkg/"),
+			}, pulumi.Parent(node))
+			if err != nil {
+				return err
+			}
+
 			_, err = remote.NewCopyToRemote(ctx, "upload-dot-env", &remote.CopyToRemoteArgs{
 				Connection: conn,
 				RemotePath: pulumi.Sprintf("/home/%s/.env", userName),
