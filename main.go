@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	iam "github.com/pulumi/pulumi-google-native/sdk/go/google/iam/v1"
 	storage "github.com/pulumi/pulumi-google-native/sdk/go/google/storage/v1"
 	tpuv2 "github.com/pulumi/pulumi-google-native/sdk/go/google/tpu/v2"
@@ -13,8 +14,10 @@ import (
 )
 
 const (
-	projectID  = "GRAPHCAST_PROJECT_ID"
-	bucketName = "GRAPHCAST_BUCKET_NAME"
+	projectID   = "GRAPHCAST_PROJECT_ID"
+	bucketName  = "GRAPHCAST_BUCKET_NAME"
+	sshUserName = "SSH_USERNAME"
+	sshKeyPath  = "SSH_KEY_PATH"
 )
 
 func main() {
@@ -39,13 +42,39 @@ func main() {
 					EnableExternalIps: pulumi.Bool(true),
 				},
 				Project: pulumi.String(os.Getenv(projectID)),
+				Metadata: pulumi.StringMap{
+					"enable-oslogin": pulumi.String("true"),
+				},
 			})
 			if err != nil {
 				return err
 			}
 
+			nodeIP := node.NetworkEndpoints.Index(pulumi.Int(0)).AccessConfig().ExternalIp()
+
 			ctx.Export("nodeId", node.NodeId)
 			ctx.Export("nodeName", node.Name)
+			ctx.Export("nodeIp", nodeIP)
+
+			keyBytes, err := os.ReadFile(os.Getenv(sshKeyPath))
+			if err != nil {
+				return err
+			}
+
+			conn := &remote.ConnectionArgs{
+				Host:       nodeIP,
+				User:       pulumi.String(os.Getenv(sshUserName)),
+				PrivateKey: pulumi.String(string(keyBytes)),
+			}
+
+			_, err = remote.NewCommand(ctx, "hostnameCmd", &remote.CommandArgs{
+				Create:     pulumi.String("ls"),
+				Connection: conn,
+			}, pulumi.Parent(node))
+			if err != nil {
+				return err
+			}
+
 		}
 
 		if conf.GetBool("enable_bucket") {
@@ -81,12 +110,10 @@ func main() {
 
 			ctx.Export("bucketName", bucket.Name)
 			ctx.Export("serviceAccountEmail", serviceAccount.Email)
-
-			// mount the bucket
 		}
 
 		return nil
 	})
 }
 
-// gcloud compute tpus tpu-vm ssh --zone us-central1-a graphcast-tpu-esta --project graphcast-esta -- -L 8081:localhost:8081
+// gcloud compute tpus tpu-vm ssh --zone us-central1-a graphcast-tpu --project graphcast-esta -- -L 8081:localhost:8081
