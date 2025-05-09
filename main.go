@@ -124,7 +124,14 @@ func main() {
 				Connection: conn,
 				RemotePath: pulumi.Sprintf("/home/%s/requirements/", userName),
 				Source:     pulumi.NewFileArchive("requirements/"),
-			}, pulumi.Parent(node))
+			},
+				pulumi.Parent(node),
+			)
+			if err != nil {
+				return err
+			}
+
+			hashes, err := getRequirementsHash()
 			if err != nil {
 				return err
 			}
@@ -136,6 +143,7 @@ pip install -r requirements/server.txt`),
 				Connection: conn,
 				Triggers: pulumi.Array{
 					requirementsUpload,
+					pulumi.String(hashes),
 				},
 			},
 				pulumi.Parent(requirementsUpload),
@@ -204,4 +212,25 @@ pip install -r requirements/server.txt`),
 	})
 }
 
-// gcloud compute tpus tpu-vm ssh --zone us-central1-a graphcast-tpu --project graphcast-esta -- -L 8081:localhost:8081
+func getRequirementsHash() (string, error) {
+	hash := ""
+
+	// get all file names from the scripts directory
+	files, err := os.ReadDir("./requirements")
+	if err != nil {
+		return hash, err
+	}
+
+	for _, file := range files {
+		filePath := fmt.Sprintf("./requirements/%s", file.Name())
+		fileContent, err := os.ReadFile(filePath)
+		if err != nil {
+			return hash, err
+		}
+		fileHash := fmt.Sprintf("%x", sha1.Sum(fileContent))
+
+		hash += fileHash
+	}
+
+	return hash, nil
+}

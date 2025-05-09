@@ -1,11 +1,15 @@
 # Jupyter dependencies
 jupyter==1.1.1
 
+# dot env
+python-dotenv==1.1.0 
+
 # Required dependencies
 ipywidgets==8.1.6
 google-cloud-storage==3.1.0
 numpy==2.2.4
 shapely==2.1.0 --no-binary shapely
+huggingface-hub==0.31.1
 
 # for downloading wheather data
 cdsapi==0.7.5
