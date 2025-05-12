@@ -15,12 +15,22 @@ import jax
 import numpy as np
 import xarray as xr
 import os
-
 from pkg.gcs_utils import client as gcs
 
 
-
 def _get_model_checkpoint(model_name: str):
+    """
+    Retrieves the model checkpoint for the given model name from the public GraphCast GCS bucket.
+
+    Args:
+        model_name (str): One of "graphcast", "graphcast_operational", or "graphcast_small".
+
+    Returns:
+        Tuple: (checkpoint object, bucket object, prefix str for stats files)
+
+    Raises:
+        FileNotFoundError: If no matching checkpoint is found.
+    """
     gcs_client = storage.Client.create_anonymous_client()
     bucket = gcs_client.bucket("dm_graphcast")
     prefix = "graphcast/params/"
@@ -47,7 +57,14 @@ def _get_model_checkpoint(model_name: str):
 
 def _load_normalization_data(bucket, dir_prefix):
     """
-    Load normalization statistics from GCS (mean, std, diffs_stddev).
+    Loads normalization statistics (mean, stddev, diffs_stddev) from the given GCS bucket.
+
+    Args:
+        bucket (google.cloud.storage.Bucket): GCS bucket object.
+        dir_prefix (str): Path prefix to the stats files inside the bucket.
+
+    Returns:
+        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: diffs_stddev, mean, stddev datasets.
     """
     with bucket.blob(dir_prefix + "stats/diffs_stddev_by_level.nc").open("rb") as f:
         diffs_stddev = xr.load_dataset(f).compute()
@@ -59,6 +76,18 @@ def _load_normalization_data(bucket, dir_prefix):
 
 
 def _build_model(ckpt, diffs_stddev, mean, stddev):
+    """
+    Builds the GraphCast model wrapped with normalization and autoregressive logic.
+
+    Args:
+        ckpt: Loaded model checkpoint.
+        diffs_stddev (xr.Dataset): Normalization dataset for residuals.
+        mean (xr.Dataset): Mean values for normalization.
+        stddev (xr.Dataset): Stddev values for normalization.
+
+    Returns:
+        Callable: A function that constructs the predictor when given model and task configs.
+    """
     def construct(model_config, task_config):
         pred = graphcast.GraphCast(model_config, task_config)
         pred = casting.Bfloat16Cast(pred)

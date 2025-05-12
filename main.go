@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/user"
+	"path/filepath"
 	"sort"
 
 	"github.com/joho/godotenv"
@@ -48,7 +50,9 @@ func main() {
 				Metadata: pulumi.StringMap{
 					"enable-oslogin": pulumi.String("true"),
 				},
-			})
+			},
+				pulumi.IgnoreChanges([]string{"location"}),
+			)
 			if err != nil {
 				return err
 			}
@@ -170,6 +174,23 @@ pip install -r requirements/server.txt`),
 			}, pulumi.Parent(node))
 			if err != nil {
 				return err
+			}
+
+			// upload cdsapirc to the server (copernicus credentials), if it exists
+			usr, err := user.Current()
+			if err != nil {
+				log.Fatalf("Failed to get current user: %v", err)
+			}
+			cdsapircPath := filepath.Join(usr.HomeDir, ".cdsapirc")
+			if _, err := os.Stat(cdsapircPath); err == nil {
+				_, err = remote.NewCopyToRemote(ctx, "upload-cdsapirc", &remote.CopyToRemoteArgs{
+					Connection: conn,
+					RemotePath: pulumi.Sprintf("/home/%s/.cdsapirc", userName),
+					Source:     pulumi.NewFileAsset(cdsapircPath),
+				}, pulumi.Parent(node))
+				if err != nil {
+					return err
+				}
 			}
 		}
 

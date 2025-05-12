@@ -7,10 +7,29 @@ from pkg.gcs_utils import client as gcs
 
 
 def _make_folder(name):
+    """
+    Create a directory if it does not exist.
+
+    Args:
+        name (str): Path to the folder.
+    """
     os.makedirs(name, exist_ok=True)
 
 
 def _download_pressure_data(client, output_path, year, month, day, times, levels, resolution):
+    """
+    Download ERA5 pressure-level data from CDS.
+
+    Args:
+        client (cdsapi.Client): CDS API client.
+        output_path (str): Path to save NetCDF file.
+        year (str): Year as "YYYY".
+        month (str): Month as "MM".
+        day (str): Day as "DD".
+        times (List[str]): List of times (e.g., ["00:00", "12:00"]).
+        levels (List[str]): Pressure levels to retrieve.
+        resolution (float): Grid resolution in degrees.
+    """
     print("📥 Downloading pressure-level data...")
     client.retrieve(
         'reanalysis-era5-pressure-levels',
@@ -31,6 +50,18 @@ def _download_pressure_data(client, output_path, year, month, day, times, levels
 
 
 def _download_surface_data(client, output_path, year, month, day, times, resolution):
+    """
+    Download ERA5 single-level surface data from CDS.
+
+    Args:
+        client (cdsapi.Client): CDS API client.
+        output_path (str): File path for the downloaded ZIP.
+        year (str): Year as "YYYY".
+        month (str): Month as "MM".
+        day (str): Day as "DD".
+        times (List[str]): List of times.
+        resolution (float): Grid resolution in degrees.
+    """
     print("📥 Downloading surface-level data...")
     client.retrieve(
         'reanalysis-era5-single-levels',
@@ -51,6 +82,13 @@ def _download_surface_data(client, output_path, year, month, day, times, resolut
 
 
 def _extract_surface_zip(zip_path, extract_to):
+    """
+    Extract a ZIP archive containing surface data.
+
+    Args:
+        zip_path (str): Path to the ZIP file.
+        extract_to (str): Directory to extract the contents to.
+    """
     print("Extracting surface ZIP...")
     _make_folder(extract_to)
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -58,6 +96,16 @@ def _extract_surface_zip(zip_path, extract_to):
 
 
 def _process_datasets(pressure_path, extract_dir):
+    """
+    Load and preprocess pressure-level and surface-level datasets.
+
+    Args:
+        pressure_path (str): Path to pressure-level NetCDF file.
+        extract_dir (str): Directory with extracted surface-level files.
+
+    Returns:
+        Tuple[xr.Dataset, xr.Dataset]: Pressure and surface datasets with aligned dimensions.
+    """
     pressure_ds = xr.open_dataset(pressure_path, engine="netcdf4")
     pressure_ds = pressure_ds.rename({
         "valid_time": "time", "latitude": "lat", "longitude": "lon", "pressure_level": "level"
@@ -74,6 +122,18 @@ def _process_datasets(pressure_path, extract_dir):
 
 
 def _add_land_sea_mask(client, ds, year, month, day, resolution, output_path):
+    """
+    Add land-sea mask to the dataset.
+
+    Args:
+        client (cdsapi.Client): CDS API client.
+        ds (xr.Dataset): Dataset to augment with land-sea mask.
+        year (str): Year of data.
+        month (str): Month of data.
+        day (str): Day of data.
+        resolution (float): Spatial resolution.
+        output_path (str): File path to save the downloaded mask.
+    """
     print("📥 Downloading land-sea mask...")
     client.retrieve(
         'reanalysis-era5-single-levels',
@@ -94,6 +154,16 @@ def _add_land_sea_mask(client, ds, year, month, day, resolution, output_path):
 
 
 def _combine_and_finalize(pressure_ds, surface_ds):
+    """
+    Merge pressure and surface datasets and apply final transformations.
+
+    Args:
+        pressure_ds (xr.Dataset): Pressure-level dataset.
+        surface_ds (xr.Dataset): Surface-level dataset.
+
+    Returns:
+        xr.Dataset: Combined and cleaned dataset ready for GraphCast.
+    """
     ds = xr.merge([pressure_ds, surface_ds]).rename({
         "t": "temperature", "u": "u_component_of_wind", "v": "v_component_of_wind",
         "z": "geopotential", "w": "vertical_velocity", "q": "specific_humidity",
@@ -124,6 +194,17 @@ def prepare_graphcast_input(
     name: str = None,
     upload_to_gcs: bool = False
 ):
+    """
+    Download and prepare ERA5 data as GraphCast-ready input.
+
+    Args:
+        date (str): Date in "YYYY-MM-DD" format.
+        times (List[str]): List of forecast times (e.g., ["00:00", "12:00"]).
+        levels (int): Number of pressure levels (13 or 37).
+        resolution (float): Grid resolution (0.25 or 1.0).
+        name (Optional[str]): Optional custom name for dataset (used in file naming).
+        upload_to_gcs (bool): Whether to upload the resulting NetCDF file to GCS.
+    """
     assert levels in [13, 37], "Only 13 or 37 pressure levels supported."
     assert resolution in [0.25, 1.0], "Only 0.25 or 1.0 degree resolution supported."
 
