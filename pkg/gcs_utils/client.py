@@ -33,7 +33,7 @@ def upload_file(local_path: str, blob_path: str):
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
     blob.upload_from_filename(local_path)
-    print(f"✅ Uploaded: {local_path} → gs://{BUCKET_NAME}/{blob_path}")
+    print(f"☁️ Uploaded: {local_path} → gs://{BUCKET_NAME}/{blob_path}")
 
 def download_file(blob_path: str, local_path: str):
     """
@@ -46,7 +46,7 @@ def download_file(blob_path: str, local_path: str):
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
     blob.download_to_filename(local_path)
-    print(f"✅ Downloaded: gs://{BUCKET_NAME}/{blob_path} → {local_path}")
+    print(f"⬇️ Downloaded: gs://{BUCKET_NAME}/{blob_path} → {local_path}")
 
 def list_files(prefix: str = ""):
     """

@@ -8,11 +8,8 @@ from graphcast import data_utils
 from graphcast import graphcast
 from graphcast import normalization
 from graphcast import rollout
-from graphcast import xarray_jax
-from graphcast import xarray_tree
 import haiku as hk
 import jax
-import numpy as np
 import xarray as xr
 import os
 from pkg.gcs_utils import client as gcs
@@ -102,7 +99,7 @@ def _build_model(ckpt, diffs_stddev, mean, stddev):
     return construct
 
 
-def run_forecast(model_name: str, input_path: str, output_name: str, upload_to_gcs: bool = False) -> str:
+def run_forecast(model_name: str, input_path: str, output_name: str, upload_to_gcs: bool = False, predictions_folder: str = "data/predictions", forecast_hours: int = 6) -> str:
     """
     Run an autoregressive GraphCast forecast.
 
@@ -130,11 +127,14 @@ def run_forecast(model_name: str, input_path: str, output_name: str, upload_to_g
     example_batch = xr.open_dataset(input_path).load()
 
     # Extract data for one-step prediction
+    lead_time_slice = slice("6h", f"{forecast_hours}h")
+
     train_inputs, train_targets, train_forcings = data_utils.extract_inputs_targets_forcings(
-        example_batch, target_lead_times=slice("6h", "6h"),
+        example_batch, target_lead_times=lead_time_slice,
         **dataclasses.asdict(task_config))
+
     eval_inputs, eval_targets, eval_forcings = data_utils.extract_inputs_targets_forcings(
-        example_batch, target_lead_times=slice("6h", "6h"),
+        example_batch, target_lead_times=lead_time_slice,
         **dataclasses.asdict(task_config))
 
     construct_fn = _build_model(ckpt, diffs_stddev, mean, stddev)
@@ -166,13 +166,13 @@ def run_forecast(model_name: str, input_path: str, output_name: str, upload_to_g
     )
 
     # Save prediction
-    os.makedirs("data/predictions", exist_ok=True)
-    output_path = f"data/predictions/{output_name}.nc"
+    os.makedirs(predictions_folder, exist_ok=True)
+    output_path = os.path.join(predictions_folder, f"{output_name}.nc")
     predictions.to_netcdf(output_path)
     print(f"✅ Prediction saved to: {output_path}")
 
     if upload_to_gcs:
-        blob_path = f"predictions/{output_name}.nc"
-        gcs.upload_file(output_path, blob_path)
+        # blob_path = f"predictions/{output_name}.nc"
+        gcs.upload_file(output_path, output_path)
 
     return output_path

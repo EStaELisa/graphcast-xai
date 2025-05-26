@@ -3,6 +3,7 @@ import cdsapi
 import xarray as xr
 import numpy as np
 import zipfile
+from datetime import datetime, timedelta
 from pkg.gcs_utils import client as gcs
 
 
@@ -30,7 +31,7 @@ def _download_pressure_data(client, output_path, year, month, day, times, levels
         levels (List[str]): Pressure levels to retrieve.
         resolution (float): Grid resolution in degrees.
     """
-    print("📥 Downloading pressure-level data...")
+    print("⬇️ Downloading pressure-level data...")
     client.retrieve(
         'reanalysis-era5-pressure-levels',
         {
@@ -62,7 +63,7 @@ def _download_surface_data(client, output_path, year, month, day, times, resolut
         times (List[str]): List of times.
         resolution (float): Grid resolution in degrees.
     """
-    print("📥 Downloading surface-level data...")
+    print("⬇️ Downloading surface-level data...")
     client.retrieve(
         'reanalysis-era5-single-levels',
         {
@@ -95,32 +96,6 @@ def _extract_surface_zip(zip_path, extract_to):
         zip_ref.extractall(extract_to)
 
 
-def _process_datasets(pressure_path, extract_dir):
-    """
-    Load and preprocess pressure-level and surface-level datasets.
-
-    Args:
-        pressure_path (str): Path to pressure-level NetCDF file.
-        extract_dir (str): Directory with extracted surface-level files.
-
-    Returns:
-        Tuple[xr.Dataset, xr.Dataset]: Pressure and surface datasets with aligned dimensions.
-    """
-    pressure_ds = xr.open_dataset(pressure_path, engine="netcdf4")
-    pressure_ds = pressure_ds.rename({
-        "valid_time": "time", "latitude": "lat", "longitude": "lon", "pressure_level": "level"
-    }).expand_dims("batch")
-
-    instant_ds = xr.open_dataset(f"{extract_dir}/data_stream-oper_stepType-instant.nc", engine="netcdf4")
-    accum_ds = xr.open_dataset(f"{extract_dir}/data_stream-oper_stepType-accum.nc", engine="netcdf4")
-    surface_ds = xr.merge([instant_ds, accum_ds]).rename({
-        "valid_time": "time", "latitude": "lat", "longitude": "lon"
-    }).expand_dims("batch")
-    surface_ds["time"] = pressure_ds["time"]
-
-    return pressure_ds, surface_ds
-
-
 def _add_land_sea_mask(client, ds, year, month, day, resolution, output_path):
     """
     Add land-sea mask to the dataset.
@@ -134,7 +109,7 @@ def _add_land_sea_mask(client, ds, year, month, day, resolution, output_path):
         resolution (float): Spatial resolution.
         output_path (str): File path to save the downloaded mask.
     """
-    print("📥 Downloading land-sea mask...")
+    print("⬇️ Downloading land-sea mask...")
     client.retrieve(
         'reanalysis-era5-single-levels',
         {
@@ -188,55 +163,111 @@ def _combine_and_finalize(pressure_ds, surface_ds):
 
 def prepare_graphcast_input(
     date: str,
-    times: list[str],
+    start_time: str,
+    n_steps: int = 3,
+    step_hours: int = 6,
     levels: int = 13,
     resolution: float = 0.25,
+    output_folder: str = "data/input_data",
     name: str = None,
     upload_to_gcs: bool = False
 ):
     """
-    Download and prepare ERA5 data as GraphCast-ready input.
+    Download and prepare ERA5 data as GraphCast-ready input,
+    allowing forecasts that cross midnight, with customizable output folder.
 
     Args:
-        date (str): Date in "YYYY-MM-DD" format.
-        times (List[str]): List of forecast times (e.g., ["00:00", "12:00"]).
+        date (str): Starting date in "YYYY-MM-DD" format.
+        start_time (str): Starting time "HH:MM"
+        n_steps (int): Number of forecast times (default 3 for t0, t+6h, t+12h).
+        step_hours (int): Hours between each forecast (default 6).
         levels (int): Number of pressure levels (13 or 37).
         resolution (float): Grid resolution (0.25 or 1.0).
+        output_folder (str): Base folder where all data will be placed.
         name (Optional[str]): Optional custom name for dataset (used in file naming).
         upload_to_gcs (bool): Whether to upload the resulting NetCDF file to GCS.
     """
     assert levels in [13, 37], "Only 13 or 37 pressure levels supported."
     assert resolution in [0.25, 1.0], "Only 0.25 or 1.0 degree resolution supported."
 
-    pressure_levels = ['50', '100', '150', '200', '250', '300', '400', '500', '600', '700', '850', '925', '1000'] if levels == 13 else [
-        str(l) for l in [1, 2, 3, 5, 7, 10, 20, 30, 50, 70, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500,
-                         550, 600, 650, 700, 750, 775, 800, 825, 850, 875, 900, 925, 950, 975, 1000]]
+    # 1) build list of datetimes
+    dt0 = datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M")
+    datetimes = [dt0 + i * timedelta(hours=step_hours) for i in range(n_steps)]
 
-    year, month, day = date.split("-")
-    time_tag = "-".join(t.replace(":", "") for t in times)
+    # 2) group times by calendar date
+    times_by_date: dict[str, list[str]] = {}
+    for dt in datetimes:
+        key = dt.strftime("%Y-%m-%d")
+        times_by_date.setdefault(key, []).append(dt.strftime("%H:%M"))
+
+    # 3) naming/tagging
+    times_tag = "-".join(dt.strftime("%H%M") for dt in datetimes)
     res_tag = f"res{int(resolution * 100)}"
-    tag = f"{date}-{levels}lev-{time_tag}-{res_tag}"
-    dataset_name = name if name else tag
-    folder = f"data/input_data/{dataset_name}"
+    tag = f"{date}-{levels}lev-{times_tag}-{res_tag}"
+    dataset_name = name or tag
+
+    # 4) make base folder
+    folder = os.path.join(output_folder, dataset_name)
     _make_folder(folder)
 
+    # 5) download per-day
     c = cdsapi.Client()
+    pressure_levels = (
+        ['50','100','150','200','250','300','400','500','600','700','850','925','1000']
+        if levels == 13 else
+        [str(l) for l in [1,2,3,5,7,10,20,30,50,70,100,125,150,175,200,225,250,300,350,400,450,500,550,600,650,700,750,775,800,825,850,875,900,925,950,975,1000]]
+    )
 
-    _download_pressure_data(c, f"{folder}/era5_pressure.nc", year, month, day, times, pressure_levels, resolution)
-    _download_surface_data(c, f"{folder}/era5_surface.zip", year, month, day, times, resolution)
-    _extract_surface_zip(f"{folder}/era5_surface.zip", f"{folder}/surface_extracted")
+    for day, times in times_by_date.items():
+        year, month, daynum = day.split("-")
+        # pressure
+        p_out = os.path.join(folder, f"era5_pressure_{day}.nc")
+        _download_pressure_data(c, p_out, year, month, daynum, times, pressure_levels, resolution)
 
-    pressure_ds, surface_ds = _process_datasets(f"{folder}/era5_pressure.nc", f"{folder}/surface_extracted")
-    combined_ds = _combine_and_finalize(pressure_ds, surface_ds)
-    _add_land_sea_mask(c, combined_ds, year, month, day, resolution, f"{folder}/land_sea_mask.nc")
+        # surface
+        s_zip = os.path.join(folder, f"era5_surface_{day}.zip")
+        _download_surface_data(c, s_zip, year, month, daynum, times, resolution)
+        _extract_surface_zip(s_zip, os.path.join(folder, f"surface_extracted_{day}"))
+
+    # 6) load, rename, expand, and concat
+    p_datasets = []
+    s_datasets = []
+    for day in times_by_date:
+        # pressure
+        p = xr.open_dataset(os.path.join(folder, f"era5_pressure_{day}.nc"), engine="netcdf4")
+        p = p.rename({
+            "valid_time": "time", "latitude": "lat", "longitude": "lon", "pressure_level": "level"
+        }).expand_dims("batch")
+        p_datasets.append(p)
+
+        # surface
+        inst = xr.open_dataset(os.path.join(folder, f"surface_extracted_{day}",
+                                              "data_stream-oper_stepType-instant.nc"), engine="netcdf4")
+        acc = xr.open_dataset(os.path.join(folder, f"surface_extracted_{day}",
+                                             "data_stream-oper_stepType-accum.nc"), engine="netcdf4")
+        s = xr.merge([inst, acc], compat="override").rename({
+            "valid_time": "time", "latitude": "lat", "longitude": "lon"
+        }).expand_dims("batch")
+        s_datasets.append(s)
+
+    # concat along time
+    pressure_ds = xr.concat(p_datasets, dim="time")
+    surface_ds = xr.concat(s_datasets, dim="time")
+    surface_ds["time"] = pressure_ds["time"]
+
+    # 7) merge, mask, save
+    combined = _combine_and_finalize(pressure_ds, surface_ds)
+    # use last day for mask metadata
+    last = list(times_by_date.keys())[-1].split("-")
+    _add_land_sea_mask(c, combined, last[0], last[1], last[2], resolution,
+                       os.path.join(folder, "land_sea_mask.nc"))
 
     filename = f"graphcast_ready_input_{dataset_name}.nc"
-    local_file = f"{folder}/{filename}"
-    combined_ds.to_netcdf(local_file)
+    local_file = os.path.join(folder, filename)
+    combined.to_netcdf(local_file)
     print(f"✅ Saved locally: {local_file}")
 
     if upload_to_gcs:
         gcs_path = f"input_data/{dataset_name}/{filename}"
         gcs.upload_file(local_file, gcs_path)
-        print(f"☁️  Uploaded to GCS: gs://{gcs.BUCKET_NAME}/{gcs_path}")
 
