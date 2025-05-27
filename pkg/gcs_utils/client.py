@@ -5,22 +5,19 @@ from google.cloud import storage
 # Load environment variables
 load_dotenv()
 
-# Fetch from .env
-BUCKET_NAME = os.getenv("GRAPHCAST_BUCKET_NAME")
-PROJECT_ID = os.getenv("GRAPHCAST_PROJECT_ID")
-
-if not BUCKET_NAME or not PROJECT_ID:
-    raise EnvironmentError("Missing required environment variables.")
-
 def get_bucket():
     """
     Returns a GCS bucket object using the configured project and bucket name.
-
-    Returns:
-        google.cloud.storage.Bucket: The GCS bucket object.
     """
-    client = storage.Client(project=PROJECT_ID)
-    return client.bucket(BUCKET_NAME)
+    bucket_name = os.getenv("GRAPHCAST_BUCKET_NAME")
+    project_id = os.getenv("GRAPHCAST_PROJECT_ID")
+
+    if not bucket_name or not project_id:
+        raise EnvironmentError("Missing required environment variables.")
+
+    client = storage.Client(project=project_id)
+    return client.bucket(bucket_name)
+
 
 def upload_file(local_path: str, blob_path: str):
     """
@@ -33,7 +30,8 @@ def upload_file(local_path: str, blob_path: str):
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
     blob.upload_from_filename(local_path)
-    print(f"☁️ Uploaded: {local_path} → gs://{BUCKET_NAME}/{blob_path}")
+    bucket_name = bucket.name
+    print(f"☁️ Uploaded: {local_path} → gs://{bucket_name}/{blob_path}")
 
 def download_file(blob_path: str, local_path: str):
     """
@@ -46,7 +44,8 @@ def download_file(blob_path: str, local_path: str):
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
     blob.download_to_filename(local_path)
-    print(f"⬇️ Downloaded: gs://{BUCKET_NAME}/{blob_path} → {local_path}")
+    bucket_name = bucket.name
+    print(f"⬇️ Downloaded: gs://{bucket_name}/{blob_path} → {local_path}")
 
 def list_files(prefix: str = ""):
     """
