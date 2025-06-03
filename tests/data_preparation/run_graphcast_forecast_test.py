@@ -7,7 +7,7 @@ import numpy as np
 import functools
 from unittest import mock
 
-from pkg.data_preparation.run_graphcast_forecast import (
+from pkg.forecast.run_forecast import (
     _get_model_checkpoint,
     _load_normalization_data,
     _build_model,

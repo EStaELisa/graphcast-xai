@@ -12,20 +12,7 @@ def download_era5_for_climatology(
     day: int,
     times: Sequence[str],
     levels: int = 13,
-    grid: float = 0.25,
-    variables: Sequence[str] = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "total_precipitation",
-        "temperature",
-        "u_component_of_wind",
-        "v_component_of_wind",
-        "geopotential",
-        "specific_humidity",
-        "vertical_velocity",
-    ),
+    grid: float = 1.0,
     area: Sequence[float] = (90, -180, -90, 180),
     out_dir: str = "data/mask_era5",
     upload_to_gcs: bool = False,
@@ -50,8 +37,6 @@ def download_era5_for_climatology(
         Number of vertical pressure levels to download. Must be 13 or 37. Default is 13.
     grid : float, optional
         Horizontal grid spacing in degrees. Must be 0.25 or 1.0. Default is 0.25.
-    variables : Sequence[str], optional
-        List of variable names to download. Default includes standard surface and pressure vars.
     area : Sequence[float], optional
         Bounding box as [North, West, South, East] in degrees. Default is global.
     out_dir : str, optional
@@ -203,6 +188,8 @@ def download_era5_for_climatology_with_unzipping(
     month,
     day,
     times,
+    levels=13, 
+    grid=1.0, 
     out_dir="data/mask_era5",
     upload_to_gcs=False
 ):
@@ -238,6 +225,8 @@ def download_era5_for_climatology_with_unzipping(
         month=month,
         day=day,
         times=times,
+        levels=levels, 
+        grid=grid, 
         out_dir=out_dir,
         upload_to_gcs=upload_to_gcs
     )

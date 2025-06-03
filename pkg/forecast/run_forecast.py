@@ -99,20 +99,27 @@ def _build_model(ckpt, diffs_stddev, mean, stddev):
     return construct
 
 
-def run_forecast(model_name: str, input_path: str, output_name: str, upload_to_gcs: bool = False, predictions_folder: str = "data/predictions", forecast_hours: int = 6) -> str:
+def run_forecast(
+    model_name: str,
+    input_data_or_path: str | xr.Dataset,
+    output_name: str,
+    upload_to_gcs: bool = False,
+    predictions_folder: str = "data/predictions",
+    forecast_hours: int = 6
+) -> str:
     """
     Run an autoregressive GraphCast forecast.
 
     Parameters:
     - model_name: One of "graphcast", "graphcast_operational", "graphcast_small"
-    - input_path: Local path to GraphCast-ready NetCDF input file
+    - input_data_or_path : str | xr.Dataset
+        Either a path to a NetCDF file or an in-memory xarray.Dataset
     - output_name: Base name of output prediction file (saved to `predictions/` locally and optionally uploaded)
 
     Returns:
     - Local path to the saved prediction NetCDF file
     """
     ckpt, bucket, dir_prefix = _get_model_checkpoint(model_name)
-
     if bucket and dir_prefix:
         diffs_stddev, mean, stddev = _load_normalization_data(bucket, dir_prefix)
     else:
@@ -123,8 +130,11 @@ def run_forecast(model_name: str, input_path: str, output_name: str, upload_to_g
     params = ckpt.params
     state = {}
 
-    # Load input
-    example_batch = xr.open_dataset(input_path).load()
+    # Load input dataset (if needed)
+    if isinstance(input_data_or_path, str):
+        example_batch = xr.open_dataset(input_data_or_path).load()
+    else:
+        example_batch = input_data_or_path
 
     # Extract data for one-step prediction
     lead_time_slice = slice("6h", f"{forecast_hours}h")

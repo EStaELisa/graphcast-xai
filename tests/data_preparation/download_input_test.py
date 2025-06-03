@@ -1,12 +1,12 @@
 import numpy as np
 import xarray as xr
 from unittest import mock
-from pkg.data_preparation import download_input
+from pkg.forecast import input_preparation
 
 
 def test_make_folder_creates_directory():
     with mock.patch("os.makedirs") as makedirs_mock:
-        download_input._make_folder("some/path")
+        input_preparation._make_folder("some/path")
         makedirs_mock.assert_called_once_with("some/path", exist_ok=True)
 
 
@@ -16,14 +16,14 @@ def test_extract_surface_zip(mock_zipfile_cls, mock_make_folder):
     mock_zip = mock.MagicMock()
     mock_zipfile_cls.return_value.__enter__.return_value = mock_zip
 
-    download_input._extract_surface_zip("file.zip", "output/")
+    input_preparation._extract_surface_zip("file.zip", "output/")
     mock_make_folder.assert_called_once_with("output/")
     mock_zip.extractall.assert_called_once_with("output/")
 
 
 def test_download_pressure_data_calls_retrieve():
     client = mock.MagicMock()
-    download_input._download_pressure_data(
+    input_preparation._download_pressure_data(
         client, "output.nc", "2024", "05", "10", ["00:00", "06:00"], ["1000", "850"], 0.25
     )
     client.retrieve.assert_called_once()
@@ -35,7 +35,7 @@ def test_download_pressure_data_calls_retrieve():
 
 def test_download_surface_data_calls_retrieve():
     client = mock.MagicMock()
-    download_input._download_surface_data(
+    input_preparation._download_surface_data(
         client, "output.zip", "2024", "05", "10", ["00:00", "06:00"], 0.25
     )
     client.retrieve.assert_called_once()
@@ -65,7 +65,7 @@ def test_combine_and_finalize_merges_and_transforms():
         "time": (("time",), [0, 1])
     })
 
-    ds = download_input._combine_and_finalize(pressure, surface)
+    ds = input_preparation._combine_and_finalize(pressure, surface)
     assert "temperature" in ds
     assert "2m_temperature" in ds
     assert "geopotential_at_surface" in ds
@@ -114,7 +114,7 @@ def test_prepare_graphcast_input_minimal(
     # Patch __setitem__ on Dataset to bypass xarray’s merge in surface_ds["time"] = ...
     with mock.patch.object(xr.Dataset, "__setitem__", lambda self, key, value: None), \
         mock.patch.object(xr.Dataset, "to_netcdf", lambda self, path: None):
-        download_input.prepare_graphcast_input(
+        input_preparation.prepare_graphcast_input(
             date="2024-05-10",
             start_time="00:00",
             n_steps=1,

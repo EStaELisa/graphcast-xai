@@ -3,7 +3,7 @@ import pytest
 import xarray as xr
 from unittest import mock
 from tempfile import TemporaryDirectory
-from pkg.mask.download_era5_mask_data import (
+from pkg.mask.download_mask_data import (
     download_era5_for_climatology,
     unzip_surface_archives,
     download_era5_for_climatology_with_unzipping
