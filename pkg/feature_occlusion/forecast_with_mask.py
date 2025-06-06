@@ -134,7 +134,7 @@ def run_multiple_forecasts_with_mask(
             climatology=climatology,
             output_name=output_name,
             predictions_folder=predictions_folder,
-            variables=variables if isinstance(variables, list) else [variables] if variables else None,
+            variables=list(variables) if isinstance(variables, (list, tuple)) else [variables] if variables else None,
             pressure_levels=levels if isinstance(levels, list) else [levels] if levels else None,
             regions=regs if isinstance(regs, list) else [regs] if regs else None,
             time_steps=steps if isinstance(steps, list) else [steps] if steps else None,

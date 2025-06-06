@@ -96,23 +96,30 @@ def get_region_mask(ds: xr.Dataset, region: str) -> xr.DataArray:
     xr.DataArray
         Boolean mask array for the region.
     """
+
     region_bounds = {
-        "atlantic_jet_stream":     (60.0, -80.0, 40.0, -20.0),
-        "upper_level_jet_stream":  (60.0, -20.0, 45.0, 15.0),
-        "storm_core_10utc":        (58.0, -7.5, 54.0, -1.0),
-        "storm_core_16utc":        (58.0, -2.0, 54.0, 8.0),
-        "storm_region":            (60.0, -10.0, 45.0, 10.0),
-        "high_pressure_south":     (45.0, -20.0, 30.0, 30.0),
-        "low_pressure_north":      (70.0, -20.0, 60.0, 30.0),
-        "north_germany":           (60.0, 10.0, 52.0, 18.0),
+        "atlantic_jet_stream":     (60.0, 280.0, 40.0, 340.0),  
+        "upper_level_jet_stream":  (60.0, 340.0, 45.0, 15.0),   
+        "storm_core_10utc":        (58.0, 352.5, 54.0, 359.0),  
+        "storm_core_16utc":        (58.0, 358.0, 54.0, 8.0),    
+        "storm_region":            (60.0, 350.0, 45.0, 10.0),  
+        "high_pressure_south":     (45.0, 340.0, 30.0, 30.0),  
+        "low_pressure_north":      (70.0, 340.0, 60.0, 30.0),  
+        "north_germany":           (60.0, 10.0, 52.0, 18.0),  
     }
 
     if region not in region_bounds:
         raise ValueError(f"Unknown region: {region}")
 
     N, W, S, E = region_bounds[region]
+
     lat_mask = (ds.lat <= N) & (ds.lat >= S)
-    lon_mask = (ds.lon >= W) & (ds.lon <= E)
+
+    if W <= E:
+        lon_mask = (ds.lon >= W) & (ds.lon <= E)
+    else:
+        # Wrap-around case
+        lon_mask = (ds.lon >= W) | (ds.lon <= E)
 
     return lat_mask & lon_mask
 
