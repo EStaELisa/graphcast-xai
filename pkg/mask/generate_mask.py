@@ -13,44 +13,32 @@ def create_feature_mask(
     time_steps: Optional[List[int]] = None
 ) -> xr.Dataset:
     """
-        Build a binary mask (1=keep, 0=masked) over all data_vars in `ds` according to:
+    Build a binary mask (1=keep, 0=masked) over all data_vars in `ds` according to:
 
-        1. `variables`:   which variables to include (default: all).
-        2. `pressure_levels`: only mask those pressure/level indices.
-        3. `regions`:     spatial regions to mask, including:
-            • static regions (e.g. "north_germany", "storm_region", etc.)
-            • "dynamic_uljs" (per‐timestep jet coordinates)
-            • "storm_core_10utc" or "storm_core_16utc" (fixed‐time cores)
-            • the meta‐region "storm_core"
-        4. `time_steps`:  which time indices to keep (all others get zeroed out).
+    1. `variables`:        which variables to include (default: all).
+    2. `pressure_levels`:  only mask those pressure/level indices.
+    3. `regions`:          spatial regions to mask, including:
+         • static regions (e.g. "north_germany", "storm_region", etc.)
+         • "dynamic_uljs" (per‐timestep jet coordinates)
+         • "storm_core_10utc" or "storm_core_16utc" (fixed‐time cores)
+         • the meta‐region "storm_core"
+    4. `time_steps`:       which time indices to keep (all others get zeroed out).
 
-        Parameters
-        ----------
-        ds : xr.Dataset
-            Input dataset with dims like ('batch','time','level','lat','lon') or
-            ('batch','time','lat','lon').
-        variables : list of str, optional
-            Only compute masks for these data_vars. Default is all lat/lon‐bearing vars.
-        pressure_levels : list of int, optional
-            Only apply pressure‐level masks on those levels.
-        regions : list of str, optional
-            See above for allowed entries and the special "storm_core" behavior.
-        time_steps : list of int, optional
-            After spatial masking, zero out all time indices *not* in this list—unless
-            overridden by the `"storm_core" + time_steps` shortcut.
+    Special `"storm_core"` meta‐region handling:
+    - If `"storm_core"` is in `regions`, it expands to
+      `"storm_core_10utc"` (t=0) and/or `"storm_core_16utc"` (t=1),
+      depending on `time_steps`, and then disables the generic time filter.
 
-        Returns
-        -------
-        xr.Dataset
-            A Dataset of 0/1 masks matching the shape and coords of `ds`.
-
-        """
+    Returns
+    -------
+    xr.Dataset
+        A Dataset of 0/1 masks matching the shape and coords of `ds`.
+        1 indicates the data should be kept, 0 indicates it should be masked.
+    """
 
     # ———— (0) Smart expand for storm_core + time_steps ————
     if regions and "storm_core" in regions:
-        # remove the meta-entry
         regions = [r for r in regions if r != "storm_core"]
-        # if they also specified time_steps, only add the cores they asked for
         if time_steps:
             new = []
             for t in time_steps:
@@ -59,10 +47,8 @@ def create_feature_mask(
                 elif t == 1:
                     new.append("storm_core_16utc")
             regions += new
-            # disable the generic time_steps filter—our region logic already did it
             time_steps = None
         else:
-            # no time_steps given → add both
             regions += ["storm_core_10utc", "storm_core_16utc"]
 
     # —————— (1) Precompute ULJS coords ——————
@@ -77,62 +63,95 @@ def create_feature_mask(
             with open(cache_path, "wb") as f:
                 pickle.dump(uljs_coords_by_time, f)
 
-    # —————— (2) Initialize mask_ds as you had it ——————
+    # —————— (2) Initialize mask dataset ——————
     mask_ds = xr.zeros_like(ds, dtype="int")
 
+    # —————— (3) Loop over each variable ——————
     for var in ds.data_vars:
         if variables and var not in variables:
             continue
 
         var_mask = xr.ones_like(ds[var], dtype="int")
 
-        # — Pressure‐level masking (unchanged) —
+        # — Pressure‐level masking —
         if pressure_levels:
-            level_dim = next((d for d in ("pressure_level","level")
-                              if d in ds[var].dims), None)
+            level_dim = next((d for d in ("pressure_level", "level") if d in ds[var].dims), None)
             if level_dim:
-                lvl_m = ds[level_dim].isin(pressure_levels)
+                lvl_mask = ds[level_dim].isin(pressure_levels)
                 for d in ds[var].dims:
-                    if d!=level_dim:
-                        lvl_m = lvl_m.broadcast_like(ds[var])
-                var_mask = var_mask.where(lvl_m, 0)
+                    if d != level_dim:
+                        lvl_mask = lvl_mask.broadcast_like(ds[var])
+                var_mask = var_mask.where(lvl_mask, other=0)
 
-        # — Region‐based masking (unchanged) —
-        if regions and {"lat","lon"}.issubset(ds[var].dims):
+        # — Region‐based masking —
+        if regions and {"lat", "lon"}.issubset(ds[var].dims):
             spatial_combined = xr.full_like(ds[var], True, dtype=bool)
+
             for region in regions:
+
+                # (a) Dynamic ULJS
                 if region == "dynamic_uljs":
-                    # … your ULJS code …
-                    pass
-                elif region in ("storm_core_10utc","storm_core_16utc"):
-                    idx = 0 if region=="storm_core_10utc" else 1
+                    if "wind" not in var:
+                        continue
+
+                    dyn_mask = xr.zeros_like(ds[var], dtype=bool)
+                    for t_idx in range(ds.sizes["time"]):
+                        coords = uljs_coords_by_time.get(t_idx, [])
+                        if not coords:
+                            continue
+                        lat_idxs, lon_idxs = zip(*coords)
+                        tmp = np.zeros((ds.sizes["lat"], ds.sizes["lon"]), dtype=bool)
+                        tmp[np.array(lat_idxs), np.array(lon_idxs)] = True
+                        da2d = xr.DataArray(
+                            tmp,
+                            coords={"lat": ds.lat, "lon": ds.lon},
+                            dims=("lat", "lon"),
+                        )
+                        slice_like = ds[var].isel(time=slice(t_idx, t_idx + 1))
+                        broad = da2d.broadcast_like(slice_like)
+                        dyn_mask.loc[dict(time=ds.time.values[t_idx])] = broad.isel(time=0)
+
+                    spatial_combined &= dyn_mask
+
+                # (b) Storm cores at fixed times
+                elif region in ("storm_core_10utc", "storm_core_16utc"):
+                    expected_time_index = 0 if region == "storm_core_10utc" else 1
                     if "time" not in ds[var].dims:
                         continue
-                    m2d = get_region_mask(ds, region)
-                    broad2D = m2d
-                    for d in ds[var].dims:
-                        if d not in ("lat","lon"):
-                            broad2D = broad2D.broadcast_like(ds[var])
-                    tf = (ds.time==ds.time.values[idx]).broadcast_like(ds[var])
-                    spatial_combined &= ( ~tf ) | broad2D
-                else:
-                    # … your other static‐region code …
-                    pass
-            var_mask = var_mask.where(spatial_combined, 0)
 
-        # — Time‐step masking — only if we didn’t already bake it in —
+                    twoD = get_region_mask(ds, region)
+                    broad2D = twoD
+                    for d in ds[var].dims:
+                        if d not in ("lat", "lon"):
+                            broad2D = broad2D.broadcast_like(ds[var])
+
+                    timeflag = (ds.time == ds.time.values[expected_time_index])
+                    timeflag_full = timeflag.broadcast_like(ds[var])
+
+                    combined_core_mask = (~timeflag_full) | broad2D
+                    spatial_combined &= combined_core_mask
+
+                # (c) Other static regions
+                else:
+                    base2D = get_region_mask(ds, region)
+                    broad2D = base2D
+                    for d in ds[var].dims:
+                        if d not in ("lat", "lon"):
+                            broad2D = broad2D.broadcast_like(ds[var])
+                    spatial_combined &= broad2D
+
+            var_mask = var_mask.where(spatial_combined, other=0)
+
+        # — Time‐step masking (if not baked in) —
         if time_steps and "time" in ds[var].dims:
             tmask = xr.zeros_like(ds[var], dtype=bool)
             for t in time_steps:
-                tmask |= (ds.time==ds.time[t])
-            var_mask = var_mask.where(tmask, 0)
+                tmask |= (ds.time == ds.time[t])
+            var_mask = var_mask.where(tmask, other=0)
 
         mask_ds[var] = var_mask
 
     return mask_ds
-
-
-
 
 
 
@@ -153,7 +172,7 @@ def get_region_mask(ds: xr.Dataset, region: str) -> xr.DataArray:
         "quad_nw": (60.0, 340.0, 52.5,  0.0),
         "quad_ne": (60.0,   0.0, 52.5, 20.0),
         "quad_sw": (52.5, 340.0, 45.0,  0.0),
-        "quad_se": (52.5,   0.0, 45.0, 20.0),
+        "quad_se": (52.5,   0.0, 45.0, 20.0)
     }
 
     if region not in region_bounds:
