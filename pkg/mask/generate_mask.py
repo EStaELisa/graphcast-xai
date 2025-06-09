@@ -112,75 +112,32 @@ def create_feature_mask(
                     spatial_combined &= dyn_mask
 
                 # —--- (b) Storm cores at fixed times --------------------------
-                # elif region in ("storm_core_10utc", "storm_core_16utc"):
-                #     # storm_core_10utc → only mask at time index 0
-                #     # storm_core_16utc → only mask at time index 1
-                #     expected_time_index = 0 if region == "storm_core_10utc" else 1
-                #     if "time" not in ds[var].dims:
-                #         continue
+                elif region in ("storm_core_10utc", "storm_core_16utc"):
+                    # storm_core_10utc → only mask at time index 0
+                    # storm_core_16utc → only mask at time index 1
+                    expected_time_index = 0 if region == "storm_core_10utc" else 1
+                    if "time" not in ds[var].dims:
+                        continue
 
-                #     # (i) Build a 2D mask in (lat, lon) for that core
-                #     twoD = get_region_mask(ds, region)  # dims: (lat, lon)
+                    # (i) Build a 2D mask in (lat, lon) for that core
+                    twoD = get_region_mask(ds, region)  # dims: (lat, lon)
 
-                #     # (ii) Broadcast that 2D mask to full dims of ds[var]
-                #     broad2D = twoD
-                #     for d in ds[var].dims:
-                #         if d not in ("lat", "lon"):
-                #             broad2D = broad2D.broadcast_like(ds[var])
+                    # (ii) Broadcast that 2D mask to full dims of ds[var]
+                    broad2D = twoD
+                    for d in ds[var].dims:
+                        if d not in ("lat", "lon"):
+                            broad2D = broad2D.broadcast_like(ds[var])
 
-                #     # (iii) Build a time‐flag that is True only at expected_time_index
-                #     timeflag = (ds.time == ds.time.values[expected_time_index])
-                #     timeflag_full = timeflag.broadcast_like(ds[var])
+                    # (iii) Build a time‐flag that is True only at expected_time_index
+                    timeflag = (ds.time == ds.time.values[expected_time_index])
+                    timeflag_full = timeflag.broadcast_like(ds[var])
 
-                #     # (iv) “Gate” the 2D mask with that time‐flag:
-                #     #      At time = expected_time_index → apply broad2D.
-                #     #      At all other times → keep everything True.
-                #     combined_core_mask = (~timeflag_full) | broad2D
+                    # (iv) “Gate” the 2D mask with that time‐flag:
+                    #      At time = expected_time_index → apply broad2D.
+                    #      At all other times → keep everything True.
+                    combined_core_mask = (~timeflag_full) | broad2D
 
-                #     spatial_combined &= combined_core_mask
-
-                
-                # —--- (b) Storm core(s) at their times -----------------------
-                elif region == "storm_core":
-                    # map each index → its fixed core name
-                    core_map = {
-                        0: "storm_core_10utc",
-                        1: "storm_core_16utc",
-                    }
-
-                    # decide which time‐indices to apply:
-                    # if user passed time_steps=[…], use that; else mask both cores
-                    times_to_mask = time_steps if time_steps is not None else list(core_map.keys())
-
-                    # start from “keep everything” (True everywhere)
-                    core_keep = xr.full_like(ds[var], True, dtype=bool)
-
-                    for t_idx in times_to_mask:
-                        if t_idx not in core_map:
-                            continue
-
-                        # (i) 2D mask for this core
-                        twoD = get_region_mask(ds, core_map[t_idx])  # dims: (lat, lon)
-
-                        # (ii) broadcast it to full var shape
-                        broad2D = twoD
-                        for dim in ds[var].dims:
-                            if dim not in ("lat", "lon"):
-                                broad2D = broad2D.broadcast_like(ds[var])
-
-                        # (iii) pick out the exact time slice
-                        this_time = ds.time[t_idx]
-                        timeflag = (ds.time == this_time).broadcast_like(ds[var])
-
-                        # (iv) at that time → mask where broad2D == True
-                        #      elsewhere → keep True
-                        keep_here = ~(timeflag & broad2D)
-
-                        # (v) accumulate: only points that survive all cores
-                        core_keep &= keep_here
-
-                    # finally carve out the storm_core mask
-                    spatial_combined &= core_keep
+                    spatial_combined &= combined_core_mask
 
 
 
