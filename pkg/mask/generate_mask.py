@@ -33,7 +33,6 @@ def create_feature_mask(
     -------
     xr.Dataset
         A Dataset of 0/1 masks matching the shape and coords of `ds`.
-        1 indicates the data should be kept, 0 indicates it should be masked.
     """
 
     # ———— (0) Smart expand for storm_core + time_steps ————
