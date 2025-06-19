@@ -1,6 +1,6 @@
 pulumi up
 
-# log into the server, adapt location if neccessary
+# log into the server, adapt location if neccessary (or make ssh)
 gcloud compute tpus tpu-vm ssh --zone us-central1-a graphcast-tpu --project graphcast-esta -- -L 8081:localhost:8081
 # gcloud compute tpus tpu-vm ssh --zone us-south1-a graphcast-tpu --project graphcast-esta -- -L 8081:localhost:8081
 

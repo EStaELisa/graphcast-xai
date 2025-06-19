@@ -1,5 +1,5 @@
 config:
-  pulumi-graphcast:tpu-chip-core-number: "1"
+  pulumi-graphcast:tpu-chip-core-number: "4"
   # available regions:
   # - us-central1-a
   # - us-east5-a
@@ -10,5 +10,5 @@ config:
   # - us-south1-a
   # see: https://cloud.google.com/tpu/pricing
   # https://cloud.google.com/tpu/docs/regions-zones?hl=de
-  pulumi-graphcast:location: us-central1-a
+  pulumi-graphcast:location: us-south1-a
   pulumi-graphcast:enable_tpu: "true"

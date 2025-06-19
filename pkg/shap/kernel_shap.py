@@ -100,5 +100,10 @@ def run_kernel_shap(
 
     # 3) return DataFrame
     names = [f if isinstance(f, str) else "+".join(f) for f in features]
-    return pd.DataFrame({"feature": names, "shap_value": shap_vals})
+    df = pd.DataFrame({"feature": names, "shap_value": shap_vals})
 
+    out_csv = os.path.join(shap_folder, "shap_values.csv")
+    df.to_csv(out_csv, index=False)
+    print(f"✅ Saved SHAP values to: {out_csv}")
+
+    return df

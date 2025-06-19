@@ -15,7 +15,7 @@ import os
 from pkg.gcs_utils import client as gcs
 
 
-def _get_model_checkpoint(model_name: str):
+def get_model_checkpoint(model_name: str):
     """
     Retrieves the model checkpoint for the given model name from the public GraphCast GCS bucket.
 
@@ -52,7 +52,7 @@ def _get_model_checkpoint(model_name: str):
 
 
 
-def _load_normalization_data(bucket, dir_prefix):
+def load_normalization_data(bucket, dir_prefix):
     """
     Loads normalization statistics (mean, stddev, diffs_stddev) from the given GCS bucket.
 
@@ -119,11 +119,11 @@ def run_forecast(
     Returns:
     - Local path to the saved prediction NetCDF file
     """
-    ckpt, bucket, dir_prefix = _get_model_checkpoint(model_name)
+    ckpt, bucket, dir_prefix = get_model_checkpoint(model_name)
     if bucket and dir_prefix:
-        diffs_stddev, mean, stddev = _load_normalization_data(bucket, dir_prefix)
+        diffs_stddev, mean, stddev = load_normalization_data(bucket, dir_prefix)
     else:
-        raise RuntimeError("graphcast_small currently lacks normalization stats download in this setup.")
+        raise RuntimeError("Normalization statistics not found.")
 
     model_config = ckpt.model_config
     task_config = ckpt.task_config

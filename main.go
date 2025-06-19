@@ -62,6 +62,7 @@ func main() {
 			ctx.Export("nodeId", node.NodeId)
 			ctx.Export("nodeName", node.Name)
 			ctx.Export("nodeIp", nodeIP)
+			ctx.Export("location", node.Location)
 
 			keyBytes, err := os.ReadFile(os.Getenv(sshKeyPath))
 			if err != nil {
@@ -112,6 +113,7 @@ func main() {
 					Connection: conn,
 					Triggers: pulumi.Array{
 						pulumi.String(fileHash),
+						node.NodeId,
 					},
 				},
 					pulumi.Parent(scriptsUpload),
@@ -210,7 +212,10 @@ pip install -r requirements/server.txt`),
 			serviceAccount, err := iam.NewServiceAccount(ctx, "tpuServiceAccount", &iam.ServiceAccountArgs{
 				AccountId:   pulumi.String("tpu-service-account"),
 				DisplayName: pulumi.String("TPU Service Account"),
-			})
+			},
+				pulumi.DependsOn([]pulumi.Resource{bucket}),
+				pulumi.Parent(bucket),
+			)
 			if err != nil {
 				return err
 			}
@@ -220,7 +225,10 @@ pip install -r requirements/server.txt`),
 				Name:   bucket.Name,
 				Role:   pulumi.String("roles/storage.objectCreator"),
 				Member: pulumi.Sprintf("serviceAccount:%s", serviceAccount.Email),
-			})
+			},
+				pulumi.DependsOn([]pulumi.Resource{bucket}),
+				pulumi.Parent(bucket),
+			)
 			if err != nil {
 				return err
 			}

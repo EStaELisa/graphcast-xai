@@ -12,9 +12,15 @@ gcloud compute os-login ssh-keys add --key-file=$HOME/.ssh/id_ed25519.pub (adapt
 
 get your username by logging into the server via ssh
 
-gcloud compute tpus tpu-vm ssh --zone us-central1-a graphcast-tpu --project {GRAPHCAST_PROJECT_ID} -- -L 8081:localhost:8081
+## Connect to server
+
+gcloud compute tpus tpu-vm ssh --zone us-east5-a graphcast-tpu --project ${GRAPHCAST_PROJECT_ID} -- -L 8081:localhost:8081
 
 ## Set in .env
 
 GRAPHCAST_BUCKET_NAME
 GRAPHCAST_PROJECT_ID
+
+## Go to bucket locally via terminal
+
+gsutil ls gs://YOUR_BUCKET_NAME
