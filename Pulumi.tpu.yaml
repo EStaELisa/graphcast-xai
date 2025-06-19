@@ -1,5 +1,5 @@
 config:
-  pulumi-graphcast:tpu-chip-core-number: "4"
+  pulumi-graphcast:tpu-chip-core-number: "1"
   # available regions:
   # - us-central1-a
   # - us-east5-a
