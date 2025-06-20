@@ -8,7 +8,5 @@ config:
   # - us-west1-c
   # - us-west4-a
   # - us-south1-a
-  # see: https://cloud.google.com/tpu/pricing
-  # https://cloud.google.com/tpu/docs/regions-zones?hl=de
   pulumi-graphcast:location: us-central1-a
-  pulumi-graphcast:enable_tpu: "true"
+  pulumi-graphcast:enable_gpu: "true"
