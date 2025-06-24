@@ -12,6 +12,7 @@ shapely==2.1.0 --no-binary shapely
 huggingface-hub==0.31.1
 pytest==8.3.5
 shap==0.48.0 # for shap values
+dm-haiku==0.0.14
 
 # for downloading weather data
 cdsapi==0.7.5
