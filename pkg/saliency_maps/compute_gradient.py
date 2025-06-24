@@ -1,6 +1,7 @@
 import dataclasses
 import functools
 import os
+from typing import Dict, Tuple, Union
 
 import xarray as xr
 import numpy as np
@@ -14,7 +15,9 @@ from graphcast import autoregressive, casting, data_utils, graphcast, normalizat
 from pkg.forecast.run_forecast import get_model_checkpoint, load_normalization_data
 from pkg.gcs_utils import client as gcs
 
-# --------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# I/O helpers
+# -----------------------------------------------------------------------------
 
 def save_saliency_to_netcdf(saliency_pytree, template_inputs, path, description="Gradient saliency"):
     """Save a pytree of saliency gradients to a NetCDF file.
@@ -37,7 +40,9 @@ def save_saliency_to_netcdf(saliency_pytree, template_inputs, path, description=
         data_vars[f"{name}_saliency"] = (dims, arr)
     xr.Dataset(data_vars, attrs={"description": description}).to_netcdf(path)
 
-# --------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Generic saliency primitives
+# -----------------------------------------------------------------------------
 
 def compute_grad_times_input(grad_fn, inputs):
     """
@@ -119,7 +124,10 @@ def compute_integrated_gradients(grad_fn, inputs, baseline=None, m_steps=50):
     ig = jax.tree_map(lambda ag, x, b: (x - b) * ag, avg_grads, inputs, baseline)
     return ig
 
-# --------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Utility converters
+# -----------------------------------------------------------------------------
+
 def convert_xr_to_pytree(xr_ds: xr.Dataset, inputs_template: dict) -> dict:
     """
     Convert an xarray.Dataset to the same dict‐pytree structure as `inputs_template`.
@@ -207,18 +215,128 @@ def dict_to_xr(inputs_dict, template):
     
     return ds
 
-# --------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Shared helpers
+# -----------------------------------------------------------------------------
+
+def _prepare_graphcast(
+    model_name: str,
+    raw_ds: xr.Dataset,
+    *,
+    lead_hours: int,
+) -> Tuple:
+    """
+    Prepare the GraphCast model for inference, loading the checkpoint and normalization data.
+    This function sets up the model, extracts inputs and targets from the dataset,
+    and returns a JIT-compiled function for running predictions.
+    Parameters
+    ----------
+    model_name : str
+        The name of the GraphCast model to use.
+    raw_ds : xr.Dataset
+        The raw dataset containing input data for the model.
+    lead_hours : int
+        The lead time in hours for the forecast.
+    Returns
+    -------
+    run_jit : Callable
+        A JIT-compiled function that takes inputs and returns model predictions.
+    inputs_xr : xr.Dataset
+        An xarray Dataset containing the model inputs.
+    inputs_dict : dict
+        A dictionary mapping variable names to JAX arrays, used as inputs for the model.
+    targets : xr.Dataset
+        An xarray Dataset containing the target values for the model.
+    forcings : xr.Dataset
+        An xarray Dataset containing the forcing variables for the model.
+    """
+    ckpt, bucket, dir_prefix = get_model_checkpoint(model_name)
+    diffs_stddev, mean, stddev = load_normalization_data(bucket, dir_prefix)
+
+    model_config, task_config = ckpt.model_config, ckpt.task_config
+    params, state = ckpt.params, {}
+
+    lead_slice = slice(f"{lead_hours}h", f"{lead_hours}h")
+    inputs_xr, targets, forcings = data_utils.extract_inputs_targets_forcings(
+        raw_ds, target_lead_times=lead_slice, **dataclasses.asdict(task_config)
+    )
+    inputs_dict = {k: jnp.asarray(v.values) for k, v in inputs_xr.items()}
+
+    @hk.transform_with_state
+    def forward(mconf, tconf, _inp, _tgt, _frc):
+        net = graphcast.GraphCast(mconf, tconf)
+        net = casting.Bfloat16Cast(net)
+        net = normalization.InputsAndResiduals(net,
+                                              diffs_stddev_by_level=diffs_stddev,
+                                              mean_by_level=mean,
+                                              stddev_by_level=stddev)
+        predictor = autoregressive.Predictor(net, gradient_checkpointing=True)
+        return predictor(_inp, targets_template=_tgt, forcings=_frc)
+
+    apply_f = functools.partial(forward.apply, params, state, None,
+                                model_config, task_config)
+    run_jit = jax.jit(lambda inp, tgt, frc: apply_f(inp, tgt, frc)[0])
+
+    return run_jit, inputs_xr, inputs_dict, targets, forcings
+
+# -----------------------------------------------------------------------------
+
+def _scalar_output_factory(run_jit, targets, forcings, *,
+                           lat_idx: int, lon_idx: int, lead_idx: int,
+                           input_template: xr.Dataset):
+    """Factory producing scalar‑output function on *dict* inputs.
+
+    The input *dict* is turned back into an ``xarray.Dataset`` using
+    ``input_template`` so it matches the signature that GraphCast expects.
+    The function computes the wind speed at the specified lat/lon and lead time.
+    Parameters
+    ----------
+    run_jit : Callable
+        A JIT-compiled function that takes inputs and returns model predictions.
+    targets : xr.Dataset    
+        An xarray Dataset containing the target values for the model.
+    forcings : xr.Dataset
+
+        An xarray Dataset containing the forcing variables for the model.
+    lat_idx : int
+        The index of the latitude in the input data.
+    lon_idx : int
+        The index of the longitude in the input data.
+    lead_idx : int
+        The index of the lead time in the input data.
+    input_template : xr.Dataset
+        An xarray Dataset that serves as a template for the input structure.
+    Returns
+    -------
+    scalar : Callable
+        A function that takes a dictionary of inputs and returns the wind speed
+        at the specified latitude and longitude for the given lead time.
+    """
+    def scalar(inputs_dict):
+        inp_ds = dict_to_xr(inputs_dict, input_template)
+        preds = run_jit(inp_ds, targets * jnp.nan, forcings)
+        u = preds["10m_u_component_of_wind"].isel(
+            time=lead_idx, lat=lat_idx, lon=lon_idx).data.jax_array
+        v = preds["10m_v_component_of_wind"].isel(
+            time=lead_idx, lat=lat_idx, lon=lon_idx).data.jax_array
+        return jnp.sqrt(u**2 + v**2).squeeze()
+    return scalar
+
+# -----------------------------------------------------------------------------
+# Public API
+# -----------------------------------------------------------------------------
 
 def run_forecast_with_gradients(
     model_name: str,
-    input_data_or_path: str | xr.Dataset,
+    input_data_or_path: Union[str, xr.Dataset],
     output_name: str,
+    *,
     target_lat: float = 54.0,
     target_lon: float = 9.0,
     lead_hours: int = 6,
     upload_to_gcs: bool = False,
     saliency_folder: str = "../data/saliency_maps",
-):
+) -> None:
     """
     Run a GraphCast forecast and compute gradients for a specific target location.
     
@@ -241,83 +359,27 @@ def run_forecast_with_gradients(
     saliency_folder : str
         Local folder where the predictions and saliency maps will be saved.     
     """
-    # Load model checkpoint and normalization data
-    ckpt, bucket, dir_prefix = get_model_checkpoint(model_name)
-    diffs_stddev, mean, stddev = load_normalization_data(bucket, dir_prefix)
-    model_config, task_config = ckpt.model_config, ckpt.task_config
-    params, state = ckpt.params, {}
+    input_ds = (xr.open_dataset(input_data_or_path).load()
+                if isinstance(input_data_or_path, str) else input_data_or_path)
 
-    # Load input data
-    if isinstance(input_data_or_path, str):
-        input_data = xr.open_dataset(input_data_or_path).load()
-    else:
-        input_data = input_data_or_path
+    run_jit, inputs_xr, inputs_dict, targets, forcings = _prepare_graphcast(
+        model_name, input_ds, lead_hours=lead_hours)
 
-    lead_slice = slice(f"{lead_hours}h", f"{lead_hours}h")  # single step
-    inputs, targets, forcings = data_utils.extract_inputs_targets_forcings(
-        input_data, target_lead_times=lead_slice, **dataclasses.asdict(task_config)
-    )
-
-    # GraphCast forward
-    @hk.transform_with_state
-    def run_forward(mconf, tconf, _inputs, _targets, _forcings):
-        pred = graphcast.GraphCast(mconf, tconf)
-        pred = casting.Bfloat16Cast(pred)
-        pred = normalization.InputsAndResiduals(
-            pred,
-            diffs_stddev_by_level=diffs_stddev,
-            mean_by_level=mean,
-            stddev_by_level=stddev
-        )
-        predictor = autoregressive.Predictor(pred, gradient_checkpointing=True)
-        return predictor(_inputs, targets_template=_targets, forcings=_forcings)
-
-    # bind and jit
-    run_fn = functools.partial(
-        run_forward.apply,
-        params, state, None, model_config, task_config
-    )
-    run_jitted = jax.jit(lambda inp, tgt, frc: run_fn(inp, tgt, frc)[0])
-
-    # Compute the target indices for the specified lat/lon
-    lats = input_data["lat"].values
-    lons = input_data["lon"].values
+    lats, lons = input_ds["lat"].values, input_ds["lon"].values
     lat_idx = int(jnp.argmin(jnp.abs(lats - target_lat)))
     lon_idx = int(jnp.argmin(jnp.abs(lons - target_lon)))
-    lead_idx = 0 
 
-    # define scalar_output
-    def scalar_output(_inputs):
-        preds = run_jitted(_inputs, targets * jnp.nan, forcings)
-
-        da_u = preds["10m_u_component_of_wind"].isel(
-            time=lead_idx, lat=lat_idx, lon=lon_idx
-        )
-        da_v = preds["10m_v_component_of_wind"].isel(
-            time=lead_idx, lat=lat_idx, lon=lon_idx
-        )
-
-        # grab the JAX arrays
-        u_tr = da_u.data.jax_array
-        v_tr = da_v.data.jax_array
-
-        # compute wind speed
-        speed = jnp.sqrt(u_tr**2 + v_tr**2)
-
-        # ensure it's a pure scalar
-        return speed.squeeze()
-
-    # Compute gradients
+    scalar_output = _scalar_output_factory(
+        run_jit, targets, forcings,
+        lat_idx=lat_idx, lon_idx=lon_idx, lead_idx=0,
+        input_template=inputs_xr
+    )
     grad_fn = jax.grad(scalar_output)
-
-    # vanilla gradient saliency
-    saliency = grad_fn(inputs)
-
-    # compute gradient × input saliency
-    grad_x_input = compute_grad_times_input(grad_fn, inputs)
-
-    # Forecast
-    # predictions = run_jitted(inputs, targets * jnp.nan, forcings)
+    
+    # Compute vanilla gradient saliency
+    saliency = grad_fn(inputs_dict) 
+    # Compute gradient × input saliency
+    grad_x_input = compute_grad_times_input(grad_fn, inputs_dict)
 
     # Save data
     os.makedirs(saliency_folder, exist_ok=True)
@@ -325,8 +387,8 @@ def run_forecast_with_gradients(
     saliency_path = os.path.join(saliency_folder, f"{output_name}_saliency.nc")
     grad_xinput_path = os.path.join(saliency_folder, f"{output_name}_grad_x_input.nc")
     
-    save_saliency_to_netcdf(saliency, inputs, saliency_path, description="Vanilla Gradient Saliency")
-    save_saliency_to_netcdf(grad_x_input, inputs, grad_xinput_path, description="Gradient × Input Saliency")
+    save_saliency_to_netcdf(saliency, inputs_xr, saliency_path, description="Vanilla Gradient Saliency")
+    save_saliency_to_netcdf(grad_x_input, inputs_xr, grad_xinput_path, description="Gradient × Input Saliency")
 
     print(f"Saliency saved to {saliency_path}")
     print(f"Gradient × Input saliency saved to {grad_xinput_path}")
@@ -336,20 +398,21 @@ def run_forecast_with_gradients(
         gcs.upload_file(grad_xinput_path, grad_xinput_path)
         print("Files uploaded to Google Cloud Storage.")
 
-# --------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 def run_forecast_with_integrated_gradients(
     model_name: str,
-    input_data_or_path: str | xr.Dataset,
+    input_data_or_path: Union[str, xr.Dataset],
     output_name: str,
+    *,
     target_lat: float = 54.0,
     target_lon: float = 9.0,
     lead_hours: int = 6,
     m_steps: int = 50,
-    baseline: xr.Dataset | dict | None = None,
+    baseline: Union[xr.Dataset, Dict[str, jnp.ndarray], None] = None,
     upload_to_gcs: bool = False,
     saliency_folder: str = "../data/saliency_maps",
-):
+) -> None:
     """
     Runs a GraphCast forecast for a specified model and input data,
     computes Integrated Gradients for a specific target location, and saves the results
@@ -386,139 +449,30 @@ def run_forecast_with_integrated_gradients(
     saliency_folder : str
         Local folder where the predictions and saliency maps will be saved.
     """
-    def ensure_time_features(ds):
-    # Add missing time/seasonal/forcing variables with correct dims
-        time = ds['time']
-        batch_dim = ds['batch'].shape[0] if 'batch' in ds.dims else 1
-        time_dim = time.shape[0]
-        lat_dim = ds['lat'].shape[0]
-        lon_dim = ds['lon'].shape[0]
+    input_ds = (xr.open_dataset(input_data_or_path).load()
+                if isinstance(input_data_or_path, str) else input_data_or_path)
 
-        # Add year_progress_sin/cos
-        if 'year_progress_sin' not in ds:
-            ds['year_progress_sin'] = (('batch', 'time'), np.zeros((batch_dim, time_dim)))
-        if 'year_progress_cos' not in ds:
-            ds['year_progress_cos'] = (('batch', 'time'), np.ones((batch_dim, time_dim)))
-        # Add day_progress_sin/cos
-        if 'day_progress_sin' not in ds:
-            ds['day_progress_sin'] = (('batch', 'time', 'lon'), np.zeros((batch_dim, time_dim, lon_dim)))
-        if 'day_progress_cos' not in ds:
-            ds['day_progress_cos'] = (('batch', 'time', 'lon'), np.ones((batch_dim, time_dim, lon_dim)))
-        # Add toa_incident_solar_radiation
-        if 'toa_incident_solar_radiation' not in ds:
-            ds['toa_incident_solar_radiation'] = (('batch', 'time', 'lat', 'lon'), np.zeros((batch_dim, time_dim, lat_dim, lon_dim)))
-        return ds
+    run_jit, inputs_xr, inputs_dict, targets, forcings = _prepare_graphcast(
+        model_name, input_ds, lead_hours=lead_hours)
 
-    def align_climatology_to_input(climatology, input):
-        # Align all coords present in both
-        for coord in ['level', 'time', 'lat', 'lon']:
-            if coord in climatology and coord in input:
-                climatology = climatology.assign_coords({coord: input[coord].values})
-        return climatology
-
-
-    # Load model & normalization statics
-    ckpt, bucket, dir_prefix = get_model_checkpoint(model_name)
-    diffs_stddev, mean, stddev = load_normalization_data(bucket, dir_prefix)
-    model_config, task_config = ckpt.model_config, ckpt.task_config
-    params, state = ckpt.params, {}
-
-    # Load input example
-    if isinstance(input_data_or_path, str):
-        input_data = xr.open_dataset(input_data_or_path).load()
-    else:
-        input_data = input_data_or_path
-    input_data = ensure_time_features(input_data)
-
-    # Extract inputs / targets / forcings
-    lead_slice = slice(f"{lead_hours}h", f"{lead_hours}h")
-    inputs_xr, targets, forcings = data_utils.extract_inputs_targets_forcings(
-        input_data,
-        target_lead_times=lead_slice,
-        **dataclasses.asdict(task_config),
-    )
-
-    # Convert all input DataArrays to JAX arrays for compatibility
-    inputs = {k: jnp.array(v.values) if hasattr(v, "values") else jnp.array(v) for k, v in inputs_xr.items()}
-
-    # FORCE baseline → dict of arrays
-    if isinstance(baseline, xr.Dataset):
-        baseline = convert_xr_to_pytree(baseline, inputs)
-    elif baseline is None:
-        # default to zero baseline
-        baseline = jax.tree_map(lambda x: jnp.zeros_like(x), inputs)
-    elif not isinstance(baseline, dict):
-        raise ValueError(f"`baseline` must be an xarray.Dataset or dict, got {type(baseline)}")
-
-    baseline = align_climatology_to_input(baseline, input_data)
-
-    # Build GraphCast forward
-    @hk.transform_with_state
-    def run_forward(mconf, tconf, _inputs, _targets, _forcings):
-        pred = graphcast.GraphCast(mconf, tconf)
-        pred = casting.Bfloat16Cast(pred)
-        pred = normalization.InputsAndResiduals(
-            pred,
-            diffs_stddev_by_level=diffs_stddev,
-            mean_by_level=mean,
-            stddev_by_level=stddev,
-        )
-        predictor = autoregressive.Predictor(pred, gradient_checkpointing=True)
-        return predictor(_inputs, targets_template=_targets, forcings=_forcings)
-
-    run_fn = functools.partial(
-        run_forward.apply, params, state, None, model_config, task_config
-    )
-    run_jitted = jax.jit(lambda inp, tgt, frc: run_fn(inp, tgt, frc)[0])
-
-    # Find grid indices for the target
-    lats = input_data["lat"].values
-    lons = input_data["lon"].values
+    lats, lons = input_ds["lat"].values, input_ds["lon"].values
     lat_idx = int(jnp.argmin(jnp.abs(lats - target_lat)))
     lon_idx = int(jnp.argmin(jnp.abs(lons - target_lon)))
-    lead_idx = 0
 
-    # Define scalar output (wind speed at specified point)
-    def scalar_output(_inputs):
-        # Convert dict of arrays to xarray.Dataset using a fixed template
-        input_xr_from_dict = dict_to_xr(_inputs, inputs_xr)
-        preds = run_jitted(input_xr_from_dict, targets * jnp.nan, forcings)
-        u = preds["10m_u_component_of_wind"].isel(
-            time=lead_idx, lat=lat_idx, lon=lon_idx
-        ).data.jax_array
-        v = preds["10m_v_component_of_wind"].isel(
-            time=lead_idx, lat=lat_idx, lon=lon_idx
-        ).data.jax_array
-        return jnp.sqrt(u**2 + v**2).squeeze()
-
+    scalar_output = _scalar_output_factory(run_jit, targets, forcings,
+                                           lat_idx=lat_idx, lon_idx=lon_idx, lead_idx=0, input_template=inputs_xr)
     grad_fn = jax.grad(scalar_output)
 
-    # Check baseline type and convert if necessary
     if isinstance(baseline, xr.Dataset):
-        baseline = convert_xr_to_pytree(baseline, inputs)
-    elif baseline is None:
-        baseline = jax.tree_map(lambda x: jnp.zeros_like(x), inputs)
-    elif not isinstance(baseline, dict):
-        raise ValueError(f"`baseline` must be an xarray.Dataset or dict, got {type(baseline)}")
+        baseline = convert_xr_to_pytree(baseline, inputs_dict)
 
-    # Defensive: If baseline is still not a dict, convert it
-    if not isinstance(baseline, dict):
-        raise ValueError(f"Baseline must be a dict after conversion, got {type(baseline)}")
+    ig = compute_integrated_gradients(
+        grad_fn, inputs_dict, baseline=baseline, m_steps=m_steps)
 
-    # Compute Integrated Gradients
-    ig_attributions = compute_integrated_gradients(
-        grad_fn,
-        inputs,
-        baseline=baseline,
-        m_steps=m_steps,
-    )
-
-    # Save to NetCDF (and optionally GCS)
     os.makedirs(saliency_folder, exist_ok=True)
-    out_path = os.path.join(saliency_folder, f"{output_name}_intgrad.nc")
-
-    save_saliency_to_netcdf(ig_attributions, inputs_xr, out_path, description="Integrated Gradients Saliency")
+    out_path = os.path.join(saliency_folder, f"{output_name}_integrated.nc")
+    save_saliency_to_netcdf(ig, inputs_xr, out_path, description="integrated saliency")
+    print(f"Integrated gradients saved to {out_path}")
     if upload_to_gcs:
         gcs.upload_file(out_path, out_path)
-
-    print(f"✅ Integrated gradients saved to {out_path}")
+        print("File uploaded to Google Cloud Storage.")
