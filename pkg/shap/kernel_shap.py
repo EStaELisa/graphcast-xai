@@ -20,8 +20,40 @@ def run_kernel_shap(
     """
     Runs KernelSHAP on GraphCast’s mean 10 m wind‐speed prediction,
     saving all SHAP forecasts into `shap_folder`.
+    The SHAP values are computed for the specified `features` and
+    averaged over the target region.
+    
+    Parameters
+    ----------
+    features : list
+        List of features to use for SHAP computation.
+        Each feature can be a string (single variable) or a list of strings
+        (multiple variables to combine).
+    input_ds : xr.Dataset
+        Input dataset containing the variables for SHAP computation.
+    climatology_ds : xr.Dataset
+        Climatology dataset to use as a baseline for SHAP.
+    shap_folder : str
+        Folder where SHAP forecasts will be saved.
+        Defaults to "../data/shap".
+    target_region : dict    
+        Dictionary defining the target region for averaging SHAP values.
+        Should contain keys: 'lat_min', 'lat_max', 'lon_min', 'lon_max'.
+        Defaults to a region over Northern Germany.
+    model_name : str
+        Name of the model to use for running forecasts.
+        Defaults to "graphcast_small".
+    nsamples : int or str
+        Number of samples for SHAP computation.
+        If "auto", uses the default number of samples for KernelSHAP.
+        Defaults to "auto". 
+    
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing the SHAP values for each feature.
+        Columns: 'feature' and 'shap_value'.
     """
-    # ensure output folder exists
     os.makedirs(shap_folder, exist_ok=True)
 
     # align climatology and input in time
@@ -34,7 +66,7 @@ def run_kernel_shap(
         out = np.zeros(masks.shape[0], dtype=float)
 
         for i, mask_vec in enumerate(masks):
-            # 1) build list of features to KEEP
+            # build list of features to KEEP
             keep = []
             for bit, feat in zip(mask_vec, features):
                 if bit == 1:
@@ -43,7 +75,7 @@ def run_kernel_shap(
                     else:
                         keep.extend(feat)
 
-            # 2) create keep‐mask (1=keep,0=mask) and invert it
+            # create keep‐mask (1=keep,0=mask) and invert it
             raw_keep = create_feature_mask(
                 ds=input_ds,
                 variables=keep,
@@ -53,10 +85,10 @@ def run_kernel_shap(
             )
             mask_ds = (raw_keep == 0).astype(int)
 
-            # 3) apply mask → climatology where mask_ds==1
+            # apply mask → climatology where mask_ds==1
             masked = apply_mask_to_input(input_ds, climatology_ds, mask_ds)
 
-            # 4) run and SAVE forecast into shap_folder
+            # run and SAVE forecast into shap_folder
             out_name = f"shap_pred_{i}"
             run_forecast(
                 model_name=model_name,
@@ -67,7 +99,7 @@ def run_kernel_shap(
             )
             pred = xr.open_dataset(os.path.join(shap_folder, out_name + ".nc"))
 
-            # 5) compute region‐mean wind speed at last timestep
+            # compute region‐mean wind speed at last timestep
             ws = compute_wind_speed(
                 pred,
                 u_name="10m_u_component_of_wind",
@@ -90,15 +122,15 @@ def run_kernel_shap(
 
         return out
 
-    # 1) background = all‐masked → zeros
+    # background = all‐masked → zeros
     Xb = np.zeros((1, len(features)))
     expl = shap.KernelExplainer(predictor, Xb, link="identity")
 
-    # 2) evaluation = all‐kept → ones
+    # evaluation = all‐kept → ones
     Xe = np.ones((1, len(features)))
     shap_vals = expl.shap_values(Xe, nsamples=nsamples)[0]
 
-    # 3) return DataFrame
+    # return DataFrame
     names = [f if isinstance(f, str) else "+".join(f) for f in features]
     df = pd.DataFrame({"feature": names, "shap_value": shap_vals})
 
