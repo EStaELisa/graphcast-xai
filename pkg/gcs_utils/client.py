@@ -23,9 +23,12 @@ def upload_file(local_path: str, blob_path: str):
     """
     Uploads a local file to the configured GCS bucket.
 
-    Args:
-        local_path (str): Path to the local file to upload.
-        blob_path (str): Destination path within the bucket (e.g., "folder/file.nc").
+    Parameters
+    ----------
+    local_path: str
+        Local file path to upload.
+    blob_path: str
+        Path in the GCS bucket where the file will be stored.
     """
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
@@ -37,9 +40,12 @@ def download_file(blob_path: str, local_path: str):
     """
     Downloads a file from the configured GCS bucket to a local path.
 
-    Args:
-        blob_path (str): Path to the file within the bucket.
-        local_path (str): Local destination path to save the file.
+    Parameters
+    ----------
+    blob_path: str
+        Path in the GCS bucket to download from.
+    local_path: str
+        Local file path where the downloaded file will be saved.
     """
     bucket = get_bucket()
     blob = bucket.blob(blob_path)
@@ -51,11 +57,15 @@ def list_files(prefix: str = ""):
     """
     Lists all file paths in the bucket that start with the given prefix.
 
-    Args:
-        prefix (str, optional): Folder path or prefix to filter files (e.g., "data/input/"). Defaults to "".
-
-    Returns:
-        list[str]: A list of blob (file) paths matching the prefix.
+    Parameters
+    ----------
+    prefix: str
+        Optional prefix to filter the files listed in the bucket.   
+    
+    Returns
+    -------
+    list
+        List of file paths in the GCS bucket that match the prefix.
     """
     bucket = get_bucket()
     return [blob.name for blob in bucket.list_blobs(prefix=prefix)]

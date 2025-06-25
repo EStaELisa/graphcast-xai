@@ -157,6 +157,23 @@ def create_feature_mask(
 def get_region_mask(ds: xr.Dataset, region: str) -> xr.DataArray:
     """
     Return a 2D (lat, lon) boolean mask for a named static region.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        The dataset containing latitude and longitude coordinates.  
+    region : str
+        The name of the region to mask.
+    
+    Returns
+    -------
+    xr.DataArray
+        A 2D boolean mask where True indicates points within the region.
+    
+    Raises
+    ------
+    ValueError
+        If the specified region is not recognized.
     """
     region_bounds = {
         "atlantic_jet_stream":     (60.0, 280.0, 40.0, 340.0),
@@ -195,6 +212,22 @@ def compute_wind_speed(
 ) -> xr.Dataset:
     """
     Adds wind_speed = sqrt(u^2 + v^2) into ds.
+    
+    Parameters
+    ----------
+    ds : xr.Dataset
+        The dataset containing u and v wind components.
+    u_name : str    
+        Name of the u component variable in the dataset.
+    v_name : str
+        Name of the v component variable in the dataset.
+    new_name : str
+        Name for the computed wind speed variable in the dataset. 
+
+    Returns
+    -------
+    xr.Dataset
+        The dataset with the new wind speed variable added.  
     """
     u = ds[u_name]
     v = ds[v_name]
@@ -210,6 +243,21 @@ def get_uljs_coordinates_by_time(
     """
     Returns a dictionary {time_index: [(lat_idx, lon_idx), …]} for each time slice
     where wind_speed (at target_level) exceeds the threshold, restricted to a lat/lon box.
+
+    Parameters  
+    ----------
+    ds : xr.Dataset
+        The dataset containing wind components and coordinates.
+    wind_threshold : float
+        The wind speed threshold to filter coordinates.
+    target_level : float
+        The pressure level at which to compute wind speed (default: 300 hPa).
+
+    Returns
+    -------
+    dict
+        A dictionary mapping time indices to lists of (lat_idx, lon_idx) tuples
+        where wind speed exceeds the threshold within the specified lat/lon box.
     """
     ds = compute_wind_speed(ds)
     lvl_idx = int(np.argmin(np.abs(ds.level.values - target_level)))

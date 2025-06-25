@@ -19,14 +19,23 @@ def get_model_checkpoint(model_name: str):
     """
     Retrieves the model checkpoint for the given model name from the public GraphCast GCS bucket.
 
-    Args:
-        model_name (str): One of "graphcast", "graphcast_operational", or "graphcast_small".
+    Parameters
+    ----------
+    model_name : str
+        One of "graphcast", "graphcast_operational", or "graphcast_small".  
+    
+    Returns
+    -------
+    Tuple[graphcast.CheckPoint, storage.Bucket, str]
+        A tuple containing:
+        - The loaded checkpoint object.
+        - The GCS bucket object.
+        - The prefix for stats files in the bucket.
 
-    Returns:
-        Tuple: (checkpoint object, bucket object, prefix str for stats files)
-
-    Raises:
-        FileNotFoundError: If no matching checkpoint is found.
+    Raises
+    -------
+    FileNotFoundError
+        If no matching checkpoint is found.
     """
     gcs_client = storage.Client.create_anonymous_client()
     bucket = gcs_client.bucket("dm_graphcast")
@@ -56,12 +65,17 @@ def load_normalization_data(bucket, dir_prefix):
     """
     Loads normalization statistics (mean, stddev, diffs_stddev) from the given GCS bucket.
 
-    Args:
-        bucket (google.cloud.storage.Bucket): GCS bucket object.
-        dir_prefix (str): Path prefix to the stats files inside the bucket.
-
-    Returns:
-        Tuple[xr.Dataset, xr.Dataset, xr.Dataset]: diffs_stddev, mean, stddev datasets.
+    Parameters
+    ----------
+    bucket (google.cloud.storage.Bucket)
+        GCS bucket object.
+    dir_prefix (str)
+        Path prefix to the stats files inside the bucket.
+    
+    Returns
+    -------
+    Tuple[xr.Dataset, xr.Dataset, xr.Dataset]
+        diffs_stddev, mean, stddev datasets.    
     """
     with bucket.blob(dir_prefix + "stats/diffs_stddev_by_level.nc").open("rb") as f:
         diffs_stddev = xr.load_dataset(f).compute()
@@ -72,18 +86,22 @@ def load_normalization_data(bucket, dir_prefix):
     return diffs_stddev, mean, stddev
 
 
-def _build_model(ckpt, diffs_stddev, mean, stddev):
+def build_model(ckpt, diffs_stddev, mean, stddev):
     """
     Builds the GraphCast model wrapped with normalization and autoregressive logic.
 
-    Args:
-        ckpt: Loaded model checkpoint.
-        diffs_stddev (xr.Dataset): Normalization dataset for residuals.
-        mean (xr.Dataset): Mean values for normalization.
-        stddev (xr.Dataset): Stddev values for normalization.
+    Parameters
+    ----------
+    ckpt: graphcast.CheckPoint
+        Loaded model checkpoint containing model and task configurations.
+    diffs_stddev (xr.Dataset): Normalization dataset for residuals.
+    mean (xr.Dataset): Mean values for normalization.
+    stddev (xr.Dataset): Stddev values for normalization. 
 
-    Returns:
-        Callable: A function that constructs the predictor when given model and task configs.
+    Returns
+    -------
+    Callable:
+        A function that constructs the predictor when given model and task configs.
     """
     def construct(model_config, task_config):
         pred = graphcast.GraphCast(model_config, task_config)
@@ -110,14 +128,19 @@ def run_forecast(
     """
     Run an autoregressive GraphCast forecast.
 
-    Parameters:
-    - model_name: One of "graphcast", "graphcast_operational", "graphcast_small"
-    - input_data_or_path : str | xr.Dataset
+    Parameters
+    ----------
+    model_name: str
+        Name of the GraphCast model to use "graphcast", "graphcast_operational" or "graphcast_small"
+    input_data_or_path : str | xr.Dataset
         Either a path to a NetCDF file or an in-memory xarray.Dataset
-    - output_name: Base name of output prediction file (saved to `predictions/` locally and optionally uploaded)
+    output_name: str
+        Base name of output prediction file (saved to `predictions/` locally and optionally uploaded)
 
-    Returns:
-    - Local path to the saved prediction NetCDF file
+    Returns
+    -------
+    str
+        The path to the saved prediction file
     """
     ckpt, bucket, dir_prefix = get_model_checkpoint(model_name)
     if bucket and dir_prefix:
@@ -147,7 +170,7 @@ def run_forecast(
         example_batch, target_lead_times=lead_time_slice,
         **dataclasses.asdict(task_config))
 
-    construct_fn = _build_model(ckpt, diffs_stddev, mean, stddev)
+    construct_fn = build_model(ckpt, diffs_stddev, mean, stddev)
 
     # Define model call
     @hk.transform_with_state
@@ -179,10 +202,10 @@ def run_forecast(
     os.makedirs(predictions_folder, exist_ok=True)
     output_path = os.path.join(predictions_folder, f"{output_name}.nc")
     predictions.to_netcdf(output_path)
-    print(f"✅ Prediction saved to: {output_path}")
+    print(f"Prediction saved to: {output_path}")
 
     if upload_to_gcs:
-        # blob_path = f"predictions/{output_name}.nc"
         gcs.upload_file(output_path, output_path)
+        print(f"Uploaded prediction to GCS: {output_path}")
 
     return output_path

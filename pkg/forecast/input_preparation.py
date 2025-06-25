@@ -11,8 +11,10 @@ def _make_folder(name):
     """
     Create a directory if it does not exist.
 
-    Args:
-        name (str): Path to the folder.
+    Parameters
+    ----------
+    name (str): 
+        Path to the folder to create.
     """
     os.makedirs(name, exist_ok=True)
 
@@ -21,15 +23,24 @@ def _download_pressure_data(client, output_path, year, month, day, times, levels
     """
     Download ERA5 pressure-level data from CDS.
 
-    Args:
-        client (cdsapi.Client): CDS API client.
-        output_path (str): Path to save NetCDF file.
-        year (str): Year as "YYYY".
-        month (str): Month as "MM".
-        day (str): Day as "DD".
-        times (List[str]): List of times (e.g., ["00:00", "12:00"]).
-        levels (List[str]): Pressure levels to retrieve.
-        resolution (float): Grid resolution in degrees.
+    Parameters
+    ----------
+    client: cdsapi.Client
+        The Climate Data Store (CDS) API client.
+    output_path: str
+        Path to save NetCDF file.
+    year: str
+        Year as "YYYY".
+    month: str
+        Month as "MM".
+    day: str
+        Day as "DD".
+    times: List[str]
+        List of times (e.g., ["00:00", "12:00"]).
+    levels: List[str]
+        Pressure levels to retrieve.
+    resolution: float
+        Grid resolution in degrees.
     """
     print("⬇️ Downloading pressure-level data...")
     client.retrieve(
@@ -54,14 +65,22 @@ def _download_surface_data(client, output_path, year, month, day, times, resolut
     """
     Download ERA5 single-level surface data from CDS.
 
-    Args:
-        client (cdsapi.Client): CDS API client.
-        output_path (str): File path for the downloaded ZIP.
-        year (str): Year as "YYYY".
-        month (str): Month as "MM".
-        day (str): Day as "DD".
-        times (List[str]): List of times.
-        resolution (float): Grid resolution in degrees.
+    Parameters
+    ----------
+    client: cdsapi.Client
+        The Climate Data Store (CDS) API client.
+    output_path: str
+        File path for the downloaded ZIP.
+    year: str
+        Year as "YYYY".
+    month: str
+        Month as "MM".
+    day: str
+        Day as "DD".
+    times: List[str]:
+        List of times.
+    resolution: float
+        Grid resolution in degrees.
     """
     print("⬇️ Downloading surface-level data...")
     client.retrieve(
@@ -86,9 +105,12 @@ def _extract_surface_zip(zip_path, extract_to):
     """
     Extract a ZIP archive containing surface data.
 
-    Args:
-        zip_path (str): Path to the ZIP file.
-        extract_to (str): Directory to extract the contents to.
+    Parameters
+    ----------
+    zip_path: str
+        The path to the ZIP file containing surface data.
+    extract_to: str
+        Directory to extract the contents to.   
     """
     print("Extracting surface ZIP...")
     _make_folder(extract_to)
@@ -100,14 +122,22 @@ def _add_land_sea_mask(client, ds, year, month, day, resolution, output_path):
     """
     Add land-sea mask to the dataset.
 
-    Args:
-        client (cdsapi.Client): CDS API client.
-        ds (xr.Dataset): Dataset to augment with land-sea mask.
-        year (str): Year of data.
-        month (str): Month of data.
-        day (str): Day of data.
-        resolution (float): Spatial resolution.
-        output_path (str): File path to save the downloaded mask.
+    Parameters
+    ----------
+    client: cdsapi.Client
+        The Climate Data Store (CDS) API client. 
+    ds: xr.Dataset
+        Dataset to augment with land-sea mask.
+    year: str
+        Year of data.
+    month: str
+        Month of data.
+    day: str
+        Day of data.
+    resolution: float
+        Spatial resolution.
+    output_path: str
+        File path to save the downloaded mask.
     """
     print("⬇️ Downloading land-sea mask...")
     client.retrieve(
@@ -132,12 +162,17 @@ def _combine_and_finalize(pressure_ds, surface_ds):
     """
     Merge pressure and surface datasets and apply final transformations.
 
-    Args:
-        pressure_ds (xr.Dataset): Pressure-level dataset.
-        surface_ds (xr.Dataset): Surface-level dataset.
-
-    Returns:
-        xr.Dataset: Combined and cleaned dataset ready for GraphCast.
+    Parameters
+    ----------  
+    pressure_ds: xr.Dataset
+        Dataset containing pressure-level data.
+    surface_ds: xr.Dataset
+        Dataset containing surface-level data.  
+    
+    Returns
+    -------
+    xr.Dataset
+        Combined dataset with renamed variables and additional coordinates.
     """
     ds = xr.merge([pressure_ds, surface_ds]).rename({
         "t": "temperature", "u": "u_component_of_wind", "v": "v_component_of_wind",
@@ -176,41 +211,51 @@ def prepare_graphcast_input(
     Download and prepare ERA5 data as GraphCast-ready input,
     allowing forecasts that cross midnight, with customizable output folder.
 
-    Args:
-        date (str): Starting date in "YYYY-MM-DD" format.
-        start_time (str): Starting time "HH:MM"
-        n_steps (int): Number of forecast times (default 3 for t0, t+6h, t+12h).
-        step_hours (int): Hours between each forecast (default 6).
-        levels (int): Number of pressure levels (13 or 37).
-        resolution (float): Grid resolution (0.25 or 1.0).
-        output_folder (str): Base folder where all data will be placed.
-        name (Optional[str]): Optional custom name for dataset (used in file naming).
-        upload_to_gcs (bool): Whether to upload the resulting NetCDF file to GCS.
+    Parameters
+    ----------
+    date: str
+        Date in "YYYY-MM-DD" format.
+    start_time: str
+        Start time in "HH:MM" format.       
+    n_steps: int
+        Number of forecast steps (default is 3).
+    step_hours: int
+        Hours between each step (default is 6).
+    levels: int
+        Number of pressure levels (13 or 37, default is 13).    
+    resolution: float
+        Spatial resolution in degrees (0.25 or 1.0, default is 0.25).
+    output_folder: str  
+        Folder to save the prepared input data (default is "data/input_data").
+    name: str, optional
+        Custom name for the dataset. If not provided, a default name is generated.  
+    upload_to_gcs: bool
+        Whether to upload the prepared input data to Google Cloud Storage (default is False).
     """
     assert levels in [13, 37], "Only 13 or 37 pressure levels supported."
     assert resolution in [0.25, 1.0], "Only 0.25 or 1.0 degree resolution supported."
 
-    # 1) build list of datetimes
+    # build list of datetimes
     dt0 = datetime.strptime(f"{date} {start_time}", "%Y-%m-%d %H:%M")
     datetimes = [dt0 + i * timedelta(hours=step_hours) for i in range(n_steps)]
 
-    # 2) group times by calendar date
+    # group times by calendar date
     times_by_date: dict[str, list[str]] = {}
     for dt in datetimes:
         key = dt.strftime("%Y-%m-%d")
         times_by_date.setdefault(key, []).append(dt.strftime("%H:%M"))
 
-    # 3) naming/tagging
+    # naming/tagging
     times_tag = "-".join(dt.strftime("%H%M") for dt in datetimes)
     res_tag = f"res{int(resolution * 100)}"
     tag = f"{date}-{levels}lev-{times_tag}-{res_tag}"
     dataset_name = name or tag
 
-    # 4) make base folder
+    # make base folder
     folder = os.path.join(output_folder, dataset_name)
     _make_folder(folder)
 
-    # 5) download per-day
+    # download per-day
     c = cdsapi.Client()
     pressure_levels = (
         ['50','100','150','200','250','300','400','500','600','700','850','925','1000']
@@ -229,7 +274,7 @@ def prepare_graphcast_input(
         _download_surface_data(c, s_zip, year, month, daynum, times, resolution)
         _extract_surface_zip(s_zip, os.path.join(folder, f"surface_extracted_{day}"))
 
-    # 6) load, rename, expand, and concat
+    # load, rename, expand, and concat
     p_datasets = []
     s_datasets = []
     for day in times_by_date:
@@ -255,7 +300,7 @@ def prepare_graphcast_input(
     surface_ds = xr.concat(s_datasets, dim="time")
     surface_ds["time"] = pressure_ds["time"]
 
-    # 7) merge, mask, save
+    # merge, mask, save
     combined = _combine_and_finalize(pressure_ds, surface_ds)
     # use last day for mask metadata
     last = list(times_by_date.keys())[-1].split("-")

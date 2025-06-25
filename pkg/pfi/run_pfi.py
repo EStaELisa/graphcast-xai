@@ -17,6 +17,24 @@ def permute_variable_with_mask(
 ) -> xr.Dataset:
     """
     Permute values of a variable in ds, restricted to where mask == 1.
+    If level_value is provided, permute only that level of the variable.
+    If level_value is None, permute all levels of the variable.
+    
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Input dataset containing the variable to permute.
+    var_name : str
+        Name of the variable to permute.
+    mask : xr.Dataset
+        Mask dataset where 1 indicates the values to permute.
+    level_value : Optional[float]
+        If provided, permute only the specified level of the variable.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset with the variable permuted according to the mask.
     """
     ds_shuffled = ds.copy(deep=True)
     var = ds[var_name]
@@ -55,6 +73,28 @@ def run_single_permutation(
     model_name: str = "graphcast_small",
     upload_to_gcs: bool = False
 ):
+    """
+    Runs a single permutation of the specified variable(s) in the dataset,
+    using the provided mask to restrict the permutation.
+    Saves the permuted dataset as a forecast.
+    
+    Parameters
+    ----------
+    ds_input : xr.Dataset
+        Input dataset containing the variable(s) to permute.
+    var : str or List[str]
+        Name(s) of the variable(s) to permute.
+    mask : xr.Dataset
+        Mask dataset where 1 indicates the values to permute.
+    run_index : int
+        Index of the current permutation run (for naming output).
+    folder : str
+        Folder where the forecast output will be saved.
+    model_name : str
+        Name of the model to use for the forecast.
+    upload_to_gcs : bool
+        Whether to upload the forecast to Google Cloud Storage.
+    """
     if isinstance(var, str):
         var = [var]
 
@@ -95,7 +135,29 @@ def run_pfi(
     upload_to_gcs: bool = False
 ):
     """
-    Runs forecast after permuting each level of each feature, then saves one forecast per variable/repetition.
+    Runs forecast after permuting each level of each feature, then saves one forecast per 
+    variable/repetition.
+    
+    Parameters
+    ----------
+    ds_input : xr.Dataset
+        Input dataset containing the variables to permute.
+    features : List[str], optional
+        List of variable names to permute. If None, all variables in ds_input are used
+    pressure_levels : List[float], optional
+        List of pressure levels to permute. If None, all levels in ds_input are used
+    regions : List[str], optional
+        List of regions to consider for the mask. If None, no region masking is applied.
+    time_steps : List[int], optional
+        List of time steps to consider for the mask. If None, all time steps in ds_input are used.
+    folder : str, optional
+        Folder where the forecast output will be saved. Default is "../data/pfi".
+    repetitions : int, optional
+        Number of times to repeat the permutation for each variable. Default is 1.
+    model_name : str, optional
+        Name of the model to use for the forecast. Default is "graphcast_small".
+    upload_to_gcs : bool, optional
+        Whether to upload the forecast to Google Cloud Storage. Default is False.  
     """
 
     # Default to all variables
@@ -120,7 +182,7 @@ def run_pfi(
         mask = create_feature_mask(
             ds=ds_input,
             variables=var_group,
-            pressure_levels=pressure_levels,  # <- apply to all levels at once
+            pressure_levels=pressure_levels,
             regions=regions,
             time_steps=time_steps
         )
@@ -143,6 +205,13 @@ def run_pfi(
 def compute_rmse(pred: xr.Dataset, target: xr.Dataset) -> float:
     """
     Compute RMSE of 10m wind speed (from u10, v10) over 53–55°N, 8–10°E.
+    
+    Parameters
+    ----------
+    pred : xr.Dataset
+        Predicted dataset containing u10 and v10 components of wind.
+    target : xr.Dataset
+        Target dataset containing u10 and v10 components of wind.
     """
     u_name = "10m_u_component_of_wind"
     v_name = "10m_v_component_of_wind"
@@ -193,7 +262,7 @@ def evaluate_pfi_folder(
     if isinstance(target, str):
         target = xr.open_dataset(target)
 
-    # ✅ Use target to compute the true baseline RMSE
+    # Use target to compute the baseline RMSE
     baseline_rmse = compute_rmse(reference, target)
 
     folder_path = Path(folder)

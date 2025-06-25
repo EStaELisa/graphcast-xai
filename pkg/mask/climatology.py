@@ -6,7 +6,28 @@ from pkg.gcs_utils import client as gcs
 
 
 def _postprocess_climatology(climatology: xr.Dataset) -> xr.Dataset:
-    """Postprocesses the raw climatology for use in masking workflows."""
+    """
+    Postprocesses the raw climatology for use in masking workflows.
+    This includes renaming variables to match GraphCast conventions,
+    renaming dimensions, wrapping longitudes to 0–360 degrees, and sorting
+    the dataset by longitude.   
+    
+    Parameters
+    ----------
+    climatology: xr.Dataset
+        The raw climatology dataset to postprocess. 
+    
+    Returns
+    -------
+    xr.Dataset
+        The postprocessed climatology dataset with standardized variable names,
+        dimensions, and coordinates.
+    
+    Raises
+    ------
+    ValueError
+        If the climatology dataset does not contain expected variables.
+    """
 
     # Rename variable names to match GraphCast naming
     rename_map = {
@@ -40,6 +61,22 @@ def compute_era5_climatology(
 ) -> xr.Dataset:
     """
     Compute ERA5 daily climatology by averaging fixed UTC hours across multiple years.
+
+    Parameters
+    ----------
+    input_folder: str
+        Path to the folder containing ERA5 pressure and surface files.
+    output_path: str
+        Path where the climatology NetCDF file will be saved.
+    upload_to_gcs: bool, optional
+        If True, uploads the resulting climatology file to Google Cloud Storage.
+    gcs_folder: str, optional
+        GCS folder where the climatology file will be uploaded if `upload_to_gcs` is True.
+
+    Returns
+    -------
+    xr.Dataset
+        The computed climatology dataset.
     """
 
     pres_pattern = os.path.join(input_folder, "era5_*_pressure.nc")

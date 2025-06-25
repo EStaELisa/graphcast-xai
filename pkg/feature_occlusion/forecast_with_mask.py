@@ -51,14 +51,14 @@ def run_forecast_with_mask(
     # Make mask
     mask = create_feature_mask(input_data, variables, pressure_levels, regions, time_steps)
 
-    # apply mask to input data
+    # Apply mask to input data
     masked_input = apply_mask_to_input(
         input_data=input_data,
         climatology_data=climatology,
         mask=mask,
     )
 
-    # Run the GraphCast small model
+    # Run the GraphCast to get the forecast
     run_forecast(
         model_name=model,
         input_data_or_path=masked_input,
@@ -114,7 +114,7 @@ def run_multiple_forecasts_with_mask(
     combinations = itertools.product(variable_groups, pressure_levels, regions, time_steps)
 
     for variables, levels, regs, steps in combinations:
-        # Normalize for display + processing
+        # Normalization function to handle both single values and lists
         def _fmt(x):
             if isinstance(x, list):
                 return "_".join(str(v) for v in x)
@@ -128,7 +128,6 @@ def run_multiple_forecasts_with_mask(
         output_name = f"masked_{variables_str}_lev{levels_str}_reg{regions_str}_t{steps_str}"
 
         print(f"🚀 Running forecast with mask on: vars={variables}, levels={levels}, regions={regs}, time_steps={steps}")
-        print(f"   → About to call run_forecast_with_mask with regs = {regs!r}")
 
         # Normalize inputs to lists (so create_feature_mask gets a List[str], not a tuple)
         variables_list = None
@@ -145,7 +144,6 @@ def run_multiple_forecasts_with_mask(
             else:
                 levels_list = [levels]
 
-        # This is the key line: treat both list and tuple as “multiple regions”
         if regs:
             if isinstance(regs, (list, tuple)):
                 regions_list = list(regs)
@@ -161,7 +159,6 @@ def run_multiple_forecasts_with_mask(
             else:
                 steps_list = [steps]
 
-        # Wrap in try/except to catch index errors and see which `regs` fails
         try:
             run_forecast_with_mask(
                 input_data=input_data,
@@ -179,18 +176,4 @@ def run_multiple_forecasts_with_mask(
         except Exception as e:
             print(f"‼ run_forecast_with_mask FAILED for regs = {regs!r}")
             print(f"   Exception message: {e}")
-            # Re‐raise so you still see the full traceback if needed:
             raise
-
-        # run_forecast_with_mask(
-        #     input_data=input_data,
-        #     climatology=climatology,
-        #     output_name=output_name,
-        #     predictions_folder=predictions_folder,
-        #     variables=list(variables) if isinstance(variables, (list, tuple)) else [variables] if variables else None,
-        #     pressure_levels=levels if isinstance(levels, list) else [levels] if levels else None,
-        #     regions=list(regs) if isinstance(regs, (list, tuple)) else [regs] if regs else None,
-        #     time_steps=steps if isinstance(steps, list) else [steps] if steps else None,
-        #     model=model,
-        #     upload_to_gcs=upload_to_gcs,
-        # )

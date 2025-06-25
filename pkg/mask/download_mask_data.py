@@ -214,11 +214,6 @@ def download_era5_for_climatology_with_unzipping(
         Directory to store downloaded and extracted files. Default is 'data/mask_era5'.
     upload_to_gcs : bool, optional
         Whether to upload the downloaded files to GCS. Default is False.
-
-    Returns
-    -------
-    None
-        Data is downloaded and unzipped in-place. Does not return a value.
     """
     download_era5_for_climatology(
         years=years,

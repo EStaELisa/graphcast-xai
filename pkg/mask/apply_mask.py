@@ -2,6 +2,23 @@ import xarray as xr
 import numpy as np
 
 def ensure_required_climatology_vars(climatology: xr.Dataset, input_data: xr.Dataset) -> xr.Dataset:
+    """
+    Ensure that the climatology dataset contains all variables present in the input data.
+    If a variable is missing, it will be added with a dummy DataArray filled with zeros.
+    This is necessary to avoid errors when applying the mask.
+    
+    Parameters
+    ----------
+    climatology : xr.Dataset
+        The climatology dataset to check and augment.
+    input_data : xr.Dataset
+        The input dataset containing the variables that should be present in the climatology.
+    
+    Returns
+    -------
+    xr.Dataset
+        The climatology dataset with all required variables added.
+    """
     climatology = climatology.copy()
 
     for var in input_data.data_vars:
