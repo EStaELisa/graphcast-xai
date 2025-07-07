@@ -43,10 +43,6 @@ def run_forecast_with_mask(
         Name of the GraphCast model to use (default: "graphcast_small").
     upload_to_gcs : bool
         If True, upload the result to Google Cloud Storage.
-
-    Returns
-    -------
-    None
     """
     # Make mask
     mask = create_feature_mask(input_data, variables, pressure_levels, regions, time_steps)

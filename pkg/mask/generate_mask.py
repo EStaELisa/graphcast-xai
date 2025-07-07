@@ -35,7 +35,7 @@ def create_feature_mask(
         A Dataset of 0/1 masks matching the shape and coords of `ds`.
     """
 
-    # ———— (0) Smart expand for storm_core + time_steps ————
+    # ———— Expand for storm_core + time_steps ————
     if regions and "storm_core" in regions:
         regions = [r for r in regions if r != "storm_core"]
         if time_steps:
@@ -50,10 +50,10 @@ def create_feature_mask(
         else:
             regions += ["storm_core_10utc", "storm_core_16utc"]
 
-    # —————— (1) Precompute ULJS coords ——————
+    # —————— Precompute ULJS coords ——————
     uljs_coords_by_time = None
     if regions and "dynamic_uljs" in regions:
-        cache_path = "uljs_coords_by_time.pkl"
+        cache_path = "../data/uljs_coords_by_time.pkl"
         if os.path.exists(cache_path):
             with open(cache_path, "rb") as f:
                 uljs_coords_by_time = pickle.load(f)
@@ -62,10 +62,10 @@ def create_feature_mask(
             with open(cache_path, "wb") as f:
                 pickle.dump(uljs_coords_by_time, f)
 
-    # —————— (2) Initialize mask dataset ——————
+    # —————— Initialize mask dataset ——————
     mask_ds = xr.zeros_like(ds, dtype="int")
 
-    # —————— (3) Loop over each variable ——————
+    # —————— Loop over each variable ——————
     for var in ds.data_vars:
         if variables and var not in variables:
             continue
@@ -184,11 +184,6 @@ def get_region_mask(ds: xr.Dataset, region: str) -> xr.DataArray:
         "high_pressure_south":     (45.0, 340.0, 30.0, 30.0),
         "low_pressure_north":      (70.0, 340.0, 60.0, 30.0),
         "north_germany":           (60.0, 10.0, 52.0, 18.0),
-
-        "quad_nw": (60.0, 340.0, 52.5,  0.0),
-        "quad_ne": (60.0,   0.0, 52.5, 20.0),
-        "quad_sw": (52.5, 340.0, 45.0,  0.0),
-        "quad_se": (52.5,   0.0, 45.0, 20.0)
     }
 
     if region not in region_bounds:

@@ -10,7 +10,7 @@ def test_make_folder_creates_directory():
         makedirs_mock.assert_called_once_with("some/path", exist_ok=True)
 
 
-@mock.patch("pkg.data_preparation.download_input._make_folder")
+@mock.patch("pkg.forecast.input_preparation._make_folder")
 @mock.patch("zipfile.ZipFile")
 def test_extract_surface_zip(mock_zipfile_cls, mock_make_folder):
     mock_zip = mock.MagicMock()
@@ -72,17 +72,17 @@ def test_combine_and_finalize_merges_and_transforms():
     assert "datetime" in ds.coords
 
 
-@mock.patch("pkg.data_preparation.download_input._make_folder")
-@mock.patch("pkg.data_preparation.download_input._download_pressure_data")
-@mock.patch("pkg.data_preparation.download_input._download_surface_data")
-@mock.patch("pkg.data_preparation.download_input._extract_surface_zip")
-@mock.patch("pkg.data_preparation.download_input.xr.open_dataset")
-@mock.patch("pkg.data_preparation.download_input.xr.merge")
-@mock.patch("pkg.data_preparation.download_input.xr.concat")
-@mock.patch("pkg.data_preparation.download_input._combine_and_finalize")
-@mock.patch("pkg.data_preparation.download_input._add_land_sea_mask")
-@mock.patch("pkg.data_preparation.download_input.gcs.upload_file")
-@mock.patch("pkg.data_preparation.download_input.cdsapi.Client")
+@mock.patch("pkg.forecast.input_preparation._make_folder")
+@mock.patch("pkg.forecast.input_preparation._download_pressure_data")
+@mock.patch("pkg.forecast.input_preparation._download_surface_data")
+@mock.patch("pkg.forecast.input_preparation._extract_surface_zip")
+@mock.patch("pkg.forecast.input_preparation.xr.open_dataset")
+@mock.patch("pkg.forecast.input_preparation.xr.merge")
+@mock.patch("pkg.forecast.input_preparation.xr.concat")
+@mock.patch("pkg.forecast.input_preparation._combine_and_finalize")
+@mock.patch("pkg.forecast.input_preparation._add_land_sea_mask")
+@mock.patch("pkg.forecast.input_preparation.gcs.upload_file")
+@mock.patch("pkg.forecast.input_preparation.cdsapi.Client")
 def test_prepare_graphcast_input_minimal(
     mock_cds_client, mock_upload, mock_add_mask, mock_combine,
     mock_concat, mock_merge, mock_open, mock_extract,

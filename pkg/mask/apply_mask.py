@@ -55,6 +55,15 @@ def apply_mask_to_input(
     -------
     xr.Dataset
         The masked input dataset with selected values replaced by climatology.
+
+    Raises
+    ------
+    ValueError
+        If the mask and input data do not have the same variables, shapes, or dimensions.
+    ValueError
+        If the climatology data does not contain all variables present in the input data.
+    ValueError
+        If the mask does not match the input data in shape or dimensions.
     """
 
     # Fix time mismatch if necessary

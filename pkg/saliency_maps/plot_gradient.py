@@ -83,7 +83,7 @@ def plot_atmospheric_saliency(
             f"{varname.replace('_',' ').title()} Saliency @ "
             f"{levels[lvl_idx]:.0f} hPa → 10 m Wind"
         )
-    ax.set_title(title + f" (t={time_index}, batch={batch_index})")
+    ax.set_title(title + f" (t={time_index})")
     plt.tight_layout()
     plt.show()
 

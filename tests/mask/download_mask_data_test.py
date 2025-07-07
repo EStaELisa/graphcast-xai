@@ -41,7 +41,7 @@ def test_unzip_surface_archives(fake_zip_dataset):
     ds = xr.open_dataset(expected_nc)
     assert "2m_temperature" in ds or "t2m" in ds
 
-@mock.patch("pkg.mask.download_era5_mask_data.cdsapi.Client")
+@mock.patch("pkg.mask.download_mask_data.cdsapi.Client")
 def test_download_era5_for_climatology_calls_api(mock_client, tmp_path):
     client_instance = mock_client.return_value
     client_instance.retrieve.return_value = None
@@ -61,8 +61,8 @@ def test_download_era5_for_climatology_calls_api(mock_client, tmp_path):
     assert "reanalysis-era5-single-levels" in calls[0]
     assert "reanalysis-era5-pressure-levels" in calls[1]
 
-@mock.patch("pkg.mask.download_era5_mask_data.download_era5_for_climatology")
-@mock.patch("pkg.mask.download_era5_mask_data.unzip_surface_archives")
+@mock.patch("pkg.mask.download_mask_data.download_era5_for_climatology")
+@mock.patch("pkg.mask.download_mask_data.unzip_surface_archives")
 def test_download_with_unzipping_wrapper(mock_unzip, mock_download):
     download_era5_for_climatology_with_unzipping(
         years=[1979],
