@@ -122,7 +122,7 @@ def run_forecast(
     input_data_or_path: str | xr.Dataset,
     output_name: str,
     upload_to_gcs: bool = False,
-    predictions_folder: str = "data/predictions",
+    predictions_folder: str = "../data/predictions",
     forecast_hours: int = 6
 ) -> str:
     """
