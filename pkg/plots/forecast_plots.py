@@ -205,9 +205,9 @@ def evaluate_wind_prediction(
         "total_points": obs_region.size
     }
 
-    print(f"✅ Mean Absolute Error (MAE):  {mae:.2f} m/s")
-    print(f"✅ Root Mean Square Error (RMSE): {rmse:.2f} m/s")
-    print(f"📏 Grid: {grid_info['lat_points']} lat × {grid_info['lon_points']} lon "
+    print(f"Mean Absolute Error (MAE):  {mae:.2f} m/s")
+    print(f"Root Mean Square Error (RMSE): {rmse:.2f} m/s")
+    print(f"Grid: {grid_info['lat_points']} lat × {grid_info['lon_points']} lon "
           f"= {grid_info['total_points']} points")
 
     return grid_info

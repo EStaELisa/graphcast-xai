@@ -1,7 +1,7 @@
 import os
 import pytest
 from unittest import mock
-from pkg.gcs_utils.client import get_bucket, upload_file, download_file, list_files
+from pkg.gcs_utils.client import upload_file, download_file, list_files
 
 # Set test values for environment
 os.environ["GRAPHCAST_BUCKET_NAME"] = "test-bucket"

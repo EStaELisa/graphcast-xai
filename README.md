@@ -126,14 +126,14 @@ pytest tests/
 
 # Cloud Computing Setup
 
-This project supports automated cloud infrastructure deployment on Google Cloud Platform (GCP) using [Pulumi](https://www.pulumi.com/). You can provision TPUs, GPUs, and storage buckets for large-scale or accelerated experiments.
+This project supports automated cloud infrastructure deployment on Google Cloud Platform (GCP) using [Pulumi](https://www.pulumi.com/). You can provision TPUs and storage buckets for large-scale or accelerated experiments.
 
 ## 1. Prerequisites
 
 - [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`, `gsutil`)
 - [Pulumi CLI](https://www.pulumi.com/docs/get-started/install/)
 - GCP project with billing enabled
-- Sufficient IAM permissions to create TPUs, GPUs, and storage buckets
+- Sufficient IAM permissions to create TPUs and storage buckets
 
 ## 2. Enable Required GCP APIs
 
@@ -165,7 +165,7 @@ SSH_KEY_PATH=/path/to/your/private/key
 
 ## 5. Deploy Infrastructure with Pulumi
 
-Choose your desired configuration (TPU, GPU, or bucket) by editing the appropriate `Pulumi.*.yaml` file.  
+Choose your desired configuration (TPU or bucket) by editing the appropriate `Pulumi.*.yaml` file.  
 Then run:
 
 ```sh
@@ -174,14 +174,14 @@ pulumi up
 
 This will:
 
-- Provision the TPU or GPU VM and/or storage bucket
+- Provision the TPU and/or storage bucket
 - Upload setup scripts, requirements, and your Python package to the server
 - Run the setup scripts in order
 - Install Python dependencies
 
 ## 6. Connect to the Server
 
-After deployment, connect to your TPU or GPU VM (adjust zone/project as needed):
+After deployment, connect to your TPU (adjust zone/project as needed):
 
 ```sh
 gcloud compute tpus tpu-vm ssh --zone us-east5-a graphcast-tpu --project ${GRAPHCAST_PROJECT_ID} -- -L 8081:localhost:8081
@@ -196,7 +196,7 @@ Start Jupyter Lab on the server (see `setup.sh` for details), then open [http://
 List your bucket contents locally:
 
 ```sh
-gsutil ls gs://YOUR_BUCKET_NAME
+gsutil ls gs://${GRAPHCAST_BUCKET_NAME}
 ```
 
 ---
@@ -204,14 +204,14 @@ gsutil ls gs://YOUR_BUCKET_NAME
 **Note:**  
 
 - All setup scripts are located in the `scripts/` directory and are executed automatically during deployment.
-- Infrastructure configuration is controlled via the Pulumi YAML files (`Pulumi.tpu.yaml`, `Pulumi.gpu.yaml`, `Pulumi.bucket.yaml`).
+- Infrastructure configuration is controlled via the Pulumi YAML files (`Pulumi.tpu.yaml`, `Pulumi.bucket.yaml`).
 - See `main.go` for Pulumi automation logic.
 
 ---
 
 ## Setup Scripts (`scripts/`)
 
-This repository provides several helper scripts in the [`scripts/`](scripts/) directory to automate environment setup and system preparation, especially for cloud or TPU/GPU environments:
+This repository provides several helper scripts in the [`scripts/`](scripts/) directory to automate environment setup and system preparation, especially for cloud or TPU environments:
 
 - **00_update.sh**  
   Updates and upgrades system packages using `apt`.

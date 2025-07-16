@@ -11,7 +11,6 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
-	compute "github.com/pulumi/pulumi-google-native/sdk/go/google/compute/beta"
 	iam "github.com/pulumi/pulumi-google-native/sdk/go/google/iam/v1"
 	storage "github.com/pulumi/pulumi-google-native/sdk/go/google/storage/v1"
 	tpuv2 "github.com/pulumi/pulumi-google-native/sdk/go/google/tpu/v2"
@@ -38,111 +37,45 @@ func main() {
 
 		// load configuration from pulumi config
 		enableTPU := conf.GetBool("enable_tpu")
-		enableGPU := conf.GetBool("enable_gpu")
 		enableBucket := conf.GetBool("enable_bucket")
 
-		// check if at least one of enable_tpu, enable_gpu, or enable_bucket is set to true
-		if !enableTPU && !enableGPU && !enableBucket {
-			return fmt.Errorf("at least one of enable_tpu, enable_gpu, or enable_bucket must be set to true")
-		}
-		if enableTPU && enableGPU {
-			return fmt.Errorf("enable_tpu and enable_gpu cannot be set to true at the same time")
+		// check if at least one of enable_tpu or enable_bucket is set to true
+		if !enableTPU && !enableBucket {
+			return fmt.Errorf("at least one of enable_tpu or enable_bucket must be set to true")
 		}
 
-		if enableTPU || enableGPU {
+		if enableTPU {
 			var nodeIP pulumi.StringOutput
 			var parent pulumi.ResourceOrInvokeOption
 
-			if enableTPU {
-				// Create a TPU node
-				node, err := tpuv2.NewNode(ctx, "tpu", &tpuv2.NodeArgs{
-					NodeId:          pulumi.String("graphcast-tpu"),
-					Location:        pulumi.String(conf.Require("location")),
-					AcceleratorType: pulumi.Sprintf("v5litepod-%d", conf.RequireInt("tpu-chip-core-number")),
-					RuntimeVersion:  pulumi.String("v2-tpuv5-litepod"),
-					NetworkConfig: tpuv2.NetworkConfigArgs{
-						EnableExternalIps: pulumi.Bool(true),
-					},
-					Project: pulumi.String(os.Getenv(projectID)),
-					Metadata: pulumi.StringMap{
-						"enable-oslogin": pulumi.String("true"),
-					},
+			// Create a TPU node
+			node, err := tpuv2.NewNode(ctx, "tpu", &tpuv2.NodeArgs{
+				NodeId:          pulumi.String("graphcast-tpu"),
+				Location:        pulumi.String(conf.Require("location")),
+				AcceleratorType: pulumi.Sprintf("v5litepod-%d", conf.RequireInt("tpu-chip-core-number")),
+				RuntimeVersion:  pulumi.String("v2-tpuv5-litepod"),
+				NetworkConfig: tpuv2.NetworkConfigArgs{
+					EnableExternalIps: pulumi.Bool(true),
 				},
-					pulumi.IgnoreChanges([]string{"location"}),
-				)
-				if err != nil {
-					return err
-				}
-
-				nodeIP = node.NetworkEndpoints.Index(pulumi.Int(0)).AccessConfig().ExternalIp()
-
-				ctx.Export("nodeId", node.NodeId)
-				ctx.Export("nodeName", node.Name)
-				ctx.Export("nodeIp", nodeIP)
-				ctx.Export("location", node.Location)
-
-				parent = pulumi.Parent(node)
+				Project: pulumi.String(os.Getenv(projectID)),
+				Metadata: pulumi.StringMap{
+					"enable-oslogin": pulumi.String("true"),
+				},
+			},
+				pulumi.IgnoreChanges([]string{"location"}),
+			)
+			if err != nil {
+				return err
 			}
 
-			if enableGPU {
-				node, err := compute.NewInstance(ctx, "gpu-instance", &compute.InstanceArgs{
-					Zone:        pulumi.String(conf.Require("location")),
-					MachineType: pulumi.String("n1-standard-1"),
-					Project:     pulumi.String(os.Getenv(projectID)),
-					Metadata: &compute.MetadataArgs{
-						Items: compute.MetadataItemsItemArray{
-							compute.MetadataItemsItemArgs{
-								Key:   pulumi.String("enable-oslogin"),
-								Value: pulumi.String("true"),
-							},
-							compute.MetadataItemsItemArgs{
-								Key: pulumi.String("startup-script"),
-								Value: pulumi.String(`#!/bin/bash
-apt-get update && apt-get install -y cuda-drivers`),
-							},
-						},
-					},
-					// Attach one NVIDIA T4
-					GuestAccelerators: compute.AcceleratorConfigArray{
-						compute.AcceleratorConfigArgs{
-							AcceleratorType:  pulumi.Sprintf("projects/%s/zones/%s/acceleratorTypes/nvidia-tesla-t4", os.Getenv(projectID), conf.Require("location")),
-							AcceleratorCount: pulumi.Int(1),
-						},
-					},
-					Scheduling: &compute.SchedulingArgs{
-						OnHostMaintenance: compute.SchedulingOnHostMaintenanceTerminate,
-					},
-					Disks: compute.AttachedDiskArray{
-						compute.AttachedDiskArgs{
-							Boot:       pulumi.Bool(true),
-							AutoDelete: pulumi.Bool(true),
-							DiskSizeGb: pulumi.String("20"),
-							InitializeParams: compute.AttachedDiskInitializeParamsArgs{
-								SourceImage: pulumi.String("projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts"),
-								DiskSizeGb:  pulumi.String("20"),
-							},
-						},
-					},
-					NetworkInterfaces: compute.NetworkInterfaceArray{
-						compute.NetworkInterfaceArgs{
-							Network: pulumi.Sprintf("projects/%s/global/networks/default", os.Getenv(projectID)),
-						},
-					},
-				},
-				)
-				if err != nil {
-					return err
-				}
+			nodeIP = node.NetworkEndpoints.Index(pulumi.Int(0)).AccessConfig().ExternalIp()
 
-				nodeIP = node.NetworkInterfaces.Index(pulumi.Int(0)).AccessConfigs().Index(pulumi.Int(0)).NatIP()
+			ctx.Export("nodeId", node.NodeId)
+			ctx.Export("nodeName", node.Name)
+			ctx.Export("nodeIp", nodeIP)
+			ctx.Export("location", node.Location)
 
-				// ctx.Export("nodeId", node.NodeId)
-				ctx.Export("nodeName", node.Name)
-				ctx.Export("nodeIp", nodeIP)
-				ctx.Export("location", node.Zone)
-
-				parent = pulumi.Parent(node)
-			}
+			parent = pulumi.Parent(node)
 
 			keyBytes, err := os.ReadFile(os.Getenv(sshKeyPath))
 			if err != nil {
