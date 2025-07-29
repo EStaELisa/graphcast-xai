@@ -323,6 +323,37 @@ def _scalar_output_factory(run_jit, targets, forcings, *,
     return scalar
 
 # -----------------------------------------------------------------------------
+# Gradient for Wind Speed
+# -----------------------------------------------------------------------------
+
+def compute_wind_speed_gradient(u: jnp.ndarray, v: jnp.ndarray,
+                                df_du: jnp.ndarray, df_dv: jnp.ndarray) -> jnp.ndarray:
+    """
+    Compute the gradient of the model output with respect to wind speed.
+    
+    Parameters
+    ----------
+    u : jnp.ndarray
+        The u-component of wind (east-west).
+    v : jnp.ndarray
+        The v-component of wind (north-south).
+    df_du : jnp.ndarray
+        Gradient of output w.r.t. u.
+    df_dv : jnp.ndarray
+        Gradient of output w.r.t. v.
+    
+    Returns
+    -------
+    df_dw : jnp.ndarray
+        Gradient of output w.r.t. wind speed.
+    """
+    w = jnp.sqrt(u**2 + v**2) + 1e-8  # epsilon to avoid divide-by-zero
+    cos_a = u / w
+    sin_a = v / w
+    return df_du * cos_a + df_dv * sin_a
+
+
+# -----------------------------------------------------------------------------
 # Public API
 # -----------------------------------------------------------------------------
 
@@ -339,6 +370,7 @@ def run_forecast_with_gradients(
 ) -> None:
     """
     Run a GraphCast forecast and compute gradients for a specific target location.
+    Also calculates the wind speed gradients and saves the results to additional NetCDF files.
     
     Parameters
     ----------
@@ -375,28 +407,78 @@ def run_forecast_with_gradients(
         input_template=inputs_xr
     )
     grad_fn = jax.grad(scalar_output)
-    
-    # Compute vanilla gradient saliency
-    saliency = grad_fn(inputs_dict) 
-    # Compute gradient × input saliency
+
+    # Compute gradients
+    saliency = grad_fn(inputs_dict)
     grad_x_input = compute_grad_times_input(grad_fn, inputs_dict)
 
-    # Save data
     os.makedirs(saliency_folder, exist_ok=True)
 
+    # ------------------------------
+    # Save base saliency maps
+    # ------------------------------
     saliency_path = os.path.join(saliency_folder, f"{output_name}_saliency.nc")
     grad_xinput_path = os.path.join(saliency_folder, f"{output_name}_grad_x_input.nc")
-    
     save_saliency_to_netcdf(saliency, inputs_xr, saliency_path, description="Vanilla Gradient Saliency")
     save_saliency_to_netcdf(grad_x_input, inputs_xr, grad_xinput_path, description="Gradient × Input Saliency")
 
-    print(f"Saliency saved to {saliency_path}")
-    print(f"Gradient × Input saliency saved to {grad_xinput_path}")
+    # ------------------------------
+    # 10m wind speed saliency
+    # ------------------------------
+    u_10m = inputs_dict["10m_u_component_of_wind"]
+    v_10m = inputs_dict["10m_v_component_of_wind"]
+    df_du_10m = saliency["10m_u_component_of_wind"]
+    df_dv_10m = saliency["10m_v_component_of_wind"]
+    df_dw_10m = compute_wind_speed_gradient(u_10m, v_10m, df_du_10m, df_dv_10m)
 
+    df_du_10m_x = grad_x_input["10m_u_component_of_wind"]
+    df_dv_10m_x = grad_x_input["10m_v_component_of_wind"]
+    df_dw_10m_x = compute_wind_speed_gradient(u_10m, v_10m, df_du_10m_x, df_dv_10m_x)
+
+    template_10m = {"10m_wind_speed": inputs_xr["10m_u_component_of_wind"]}
+    save_saliency_to_netcdf({"10m_wind_speed": df_dw_10m}, template_10m,
+                            os.path.join(saliency_folder, f"{output_name}_wind_speed_saliency.nc"),
+                            description="10m Wind Speed Gradient Saliency")
+    save_saliency_to_netcdf({"10m_wind_speed": df_dw_10m_x}, template_10m,
+                            os.path.join(saliency_folder, f"{output_name}_wind_speed_grad_x_input.nc"),
+                            description="10m Wind Speed Gradient × Input Saliency")
+
+    # ------------------------------
+    # Wind speed saliency at all levels
+    # ------------------------------
+    u_3d = inputs_dict["u_component_of_wind"]
+    v_3d = inputs_dict["v_component_of_wind"]
+    df_du_3d = saliency["u_component_of_wind"]
+    df_dv_3d = saliency["v_component_of_wind"]
+    df_dw_3d = compute_wind_speed_gradient(u_3d, v_3d, df_du_3d, df_dv_3d)
+
+    df_du_3d_x = grad_x_input["u_component_of_wind"]
+    df_dv_3d_x = grad_x_input["v_component_of_wind"]
+    df_dw_3d_x = compute_wind_speed_gradient(u_3d, v_3d, df_du_3d_x, df_dv_3d_x)
+
+    template_levels = {"wind_speed": inputs_xr["u_component_of_wind"]}
+    save_saliency_to_netcdf({"wind_speed": df_dw_3d}, template_levels,
+                            os.path.join(saliency_folder, f"{output_name}_wind_speed_levels_saliency.nc"),
+                            description="Wind Speed Gradient Saliency (All Levels)")
+    save_saliency_to_netcdf({"wind_speed": df_dw_3d_x}, template_levels,
+                            os.path.join(saliency_folder, f"{output_name}_wind_speed_levels_grad_x_input.nc"),
+                            description="Wind Speed Gradient × Input (All Levels)")
+
+    # ------------------------------
+    # Upload if needed
+    # ------------------------------
     if upload_to_gcs:
-        gcs.upload_file(saliency_path, saliency_path)
-        gcs.upload_file(grad_xinput_path, grad_xinput_path)
-        print("Files uploaded to Google Cloud Storage.")
+        files = [
+            saliency_path,
+            grad_xinput_path,
+            os.path.join(saliency_folder, f"{output_name}_wind_speed_saliency.nc"),
+            os.path.join(saliency_folder, f"{output_name}_wind_speed_grad_x_input.nc"),
+            os.path.join(saliency_folder, f"{output_name}_wind_speed_levels_saliency.nc"),
+            os.path.join(saliency_folder, f"{output_name}_wind_speed_levels_grad_x_input.nc"),
+        ]
+        for f in files:
+            gcs.upload_file(f, f)
+        print("All saliency files uploaded to Google Cloud Storage.")
 
 # -----------------------------------------------------------------------------
 
