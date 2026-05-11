@@ -6,6 +6,8 @@ The analysis combines multiple attribution methods, including feature occlusion,
 
 This work highlights the potential of XAI to enhance transparency and trust in AI-based weather models, especially for extreme weather events.
 
+**Full Thesis (PDF):** [docs/thesis.pdf](docs/Thesis_Explainable_Artificial_Intelligence_in_GraphCast.pdf)
+
 ---
 
 # Requirements & Installation
